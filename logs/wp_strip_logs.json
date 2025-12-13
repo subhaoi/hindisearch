@@ -1,0 +1,314 @@
+{
+  "rows": 788,
+  "failed_parse_count": 0,
+  "very_short_content_rows": [
+    {
+      "id": "2137",
+      "url": "https://hindi.idronline.org/?post_type=article&p=2137",
+      "clean_len": 0,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "4040",
+      "url": "https://hindi.idronline.org/article/sow-and-tell-nonprofit-humour/",
+      "clean_len": 23,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "4549",
+      "url": "https://hindi.idronline.org/article/when-someone-from-the-head-office-arrives-for-a-field-visit-nonprofit-humour/",
+      "clean_len": 170,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "4824",
+      "url": "https://hindi.idronline.org/article/a-solution-to-the-climate-problem-has-been-found/",
+      "clean_len": 23,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "4903",
+      "url": "https://hindi.idronline.org/article/working-with-government-offices-means-drinking-tea/",
+      "clean_len": 23,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "5193",
+      "url": "https://hindi.idronline.org/article/voters-and-politicians-during-election-season/",
+      "clean_len": 76,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "5433",
+      "url": "https://hindi.idronline.org/article/what-is-the-job-of-a-researcher/",
+      "clean_len": 0,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "5844",
+      "url": "https://hindi.idronline.org/article/fake-horoscope-for-development-sector-workers-part-1/",
+      "clean_len": 92,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "5944",
+      "url": "https://hindi.idronline.org/article/fake-horoscope-for-development-sector-workers-part-2/",
+      "clean_len": 173,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "5984",
+      "url": "https://hindi.idronline.org/article/big-words-used-in-the-development-sector/",
+      "clean_len": 19,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6107",
+      "url": "https://hindi.idronline.org/article/budget-announcements-for-the-development-sector/",
+      "clean_len": 19,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6154",
+      "url": "https://hindi.idronline.org/article/business-as-usual-nonprofit-humour/",
+      "clean_len": 65,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6246",
+      "url": "https://hindi.idronline.org/article/the-perks-of-being-inspirational-nonprofit-humour/",
+      "clean_len": 65,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6304",
+      "url": "https://hindi.idronline.org/article/the-lost-values-of-ngos/",
+      "clean_len": 104,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6505",
+      "url": "https://hindi.idronline.org/article/societys-opinion-on-your-preferred-career-option/",
+      "clean_len": 173,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6714",
+      "url": "https://hindi.idronline.org/article/stories-of-the-education-system/",
+      "clean_len": 24,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "6757",
+      "url": "https://hindi.idronline.org/article/riddles-of-the-social-impact-sector/",
+      "clean_len": 18,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "7144",
+      "url": "https://hindi.idronline.org/article/difference-between-objectives-and-the-reality-in-nonprofits/",
+      "clean_len": 24,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "7178",
+      "url": "https://hindi.idronline.org/article/success-stories-in-the-development-sector/",
+      "clean_len": 148,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "7937",
+      "url": "https://hindi.idronline.org/article/chunav-mein-sadak-kyon-bani/",
+      "clean_len": 163,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "8074",
+      "url": "https://hindi.idronline.org/article/yuvaon-par-umeedon-ka-bojh/",
+      "clean_len": 71,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "8188",
+      "url": "https://hindi.idronline.org/article/bada-aandolan-chalaane-ke-liye-kya-karna-chahiye/",
+      "clean_len": 17,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "8257",
+      "url": "https://hindi.idronline.org/article/bemausam-barish-ka-kisaano-aur-yuvaon-par-asar/",
+      "clean_len": 17,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "8379",
+      "url": "https://hindi.idronline.org/article/kal-ke-liye-ladaai-azadi-se-ab-tak/",
+      "clean_len": 17,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "8424",
+      "url": "https://hindi.idronline.org/article/samajik-muddon-mein-yuvaaon-ki-ruchi-ke-aankde/",
+      "clean_len": 17,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "9132",
+      "url": "https://hindi.idronline.org/article/funding-hasil-karne-ka-akhiri-vikalp/",
+      "clean_len": 17,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "9578",
+      "url": "https://hindi.idronline.org/article/field-survey-mein-smauday-se-mile-kuch-mazedar-jawab/",
+      "clean_len": 113,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "9674",
+      "url": "https://hindi.idronline.org/article/naukari-pane-ki-nayi-anivarya-shart/",
+      "clean_len": 94,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "9827",
+      "url": "https://hindi.idronline.org/article/vikas-sector-ki-paheliyaan/",
+      "clean_len": 62,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10076",
+      "url": "https://hindi.idronline.org/article/social-sector-ki-conference-tak-karyakarta-kaise-pahunchein/",
+      "clean_len": 23,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10275",
+      "url": "https://hindi.idronline.org/article/ladkiyan-kya-nahi-kar-sakti-hain-lekin-ghar-ka-kaam/",
+      "clean_len": 66,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10319",
+      "url": "https://hindi.idronline.org/article/republic-day-par-logon-ki-bhavnayein/",
+      "clean_len": 133,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10432",
+      "url": "https://hindi.idronline.org/article/ngo-mein-naukari-par-pariwar-aur-samaj/",
+      "clean_len": 25,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10630",
+      "url": "https://hindi.idronline.org/article/budget-par-vikas-sector-karmchariyon-ki-pratikriyayein/",
+      "clean_len": 167,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "10865",
+      "url": "https://hindi.idronline.org/article/mahilaon-ki-sthiti-mein-kathni-aur-karni-ka-antar/",
+      "clean_len": 0,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "12287",
+      "url": "https://hindi.idronline.org/article/vikas-ho-toh-raha-hai-ab-btaao-dikhega-kab/",
+      "clean_len": 74,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "12577",
+      "url": "https://hindi.idronline.org/?post_type=article&p=12577",
+      "clean_len": 0,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "12583",
+      "url": "https://hindi.idronline.org/article/data-ke-bina-sansthaon-ke-kaam-ka-aankalan/",
+      "clean_len": 191,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "12991",
+      "url": "https://hindi.idronline.org/article/sabke-liye-azadi-ek-saman-kab-hogi/",
+      "clean_len": 23,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "13594",
+      "url": "https://hindi.idronline.org/article/samajik-mudde-aur-digital-samadhan/",
+      "clean_len": 28,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "13947",
+      "url": "https://hindi.idronline.org/article/crs-fundraisers-journey-a-chapter-of-hope-and-hard-work/",
+      "clean_len": 77,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "14185",
+      "url": "https://hindi.idronline.org/article/workshop-karte-samay-dhyan-rakhne-waali-baat/",
+      "clean_len": 178,
+      "reason": "clean_len<200"
+    },
+    {
+      "id": "12580",
+      "url": "https://hindi.idronline.org/?post_type=groundup&p=12580",
+      "clean_len": 0,
+      "reason": "clean_len<200"
+    }
+  ],
+  "script_contamination_examples": [
+    {
+      "id": "7720",
+      "latin_pct": 0.29867482161060144,
+      "dev_pct": 0.273190621814475,
+      "snippet": "1. जब आपको पता चलता है कि आपको किसी वर्कशॉप में जाना है - \n \n \n \n\n \n \n \n \n\n \n \n \n \n\n Anupama GIF from Anupama GIFs \n \n \n \n\n \n \n \n \n\n 2 . जब स्पीकर बोलते हुए बड़े-बड़े शब्द (जार्गन) इस्तेमाल करे - \n \n "
+    },
+    {
+      "id": "8910",
+      "latin_pct": 0.31097560975609756,
+      "dev_pct": 0.3170731707317073,
+      "snippet": "1 \n \n \n \n \n\n आपको बताया गया है कि अगले दो दिनों में आपको एक ग्रांट प्रपोजल बनाना है। इसमें बताना है कि अगले पांच सालों के लिए आपकी संस्था की क्या योजनाएं हैं, अभी आप क्या असर डाल पा रहे हैं, और यह भी "
+    },
+    {
+      "id": "10897",
+      "latin_pct": 0.1064453125,
+      "dev_pct": 0.666015625,
+      "snippet": "https: //soundcloud.com/vidhi-legal-policy/the-feminist-city-ep-8-on-youth-mental-justice-and-politics-of-urban-development-for-nt-dnts\n \n \n \n \n\n \n विधि - सेंटर फॉर लीगल पॉलिसी के पॉडकास्ट द फेमिनिस्ट"
+    },
+    {
+      "id": "10951",
+      "latin_pct": 0.2104787714543812,
+      "dev_pct": 0.4001806684733514,
+      "snippet": "1. अगर आप किसी नए संगठन के साथ साझेदारी करने वाले हैं- \n \n \n \n\n \nhttps: //www.youtube.com/watch? v=E1f0sZBt1WY\n \n \n \n \n\n \n \n \n \n\n 2. अगर आपका पाला किसी ऐसे फंडर से पड़ा है, जो बहुत जल्दी इम्पैक्ट रिपो"
+    },
+    {
+      "id": "11048",
+      "latin_pct": 0.22536945812807882,
+      "dev_pct": 0.31650246305418717,
+      "snippet": "1. अप्रेजल के महीने में संस्था के कर्मचारियों के 'दिल का हाल'- \n \n \n \n\n \nhttps: //youtu.be/zI2HJONbT5A? t=111\n \n \n \n \n\n \n \n \n \n\n \n \n \n \n\n 2. अप्रेजल से पहले मैनेजर के 'मासूम वादे'- \n \n \n \n\n \nhttps: //"
+    },
+    {
+      "id": "11732",
+      "latin_pct": 0.127786206091726,
+      "dev_pct": 0.6300035009919477,
+      "snippet": "शुरुआत सबसे नये और उस कानून से जिस पर कुछ समय से काफी विवाद चल रहा है। तमाम विरोधों के बीच वक्फ (संशोधन) विधेयक 2025, लोकसभा और राज्यसभा में पारित होकर वक्फ (संशोधन) अधिनियम 2025 बन चुका है। यह कानून,"
+    },
+    {
+      "id": "11907",
+      "latin_pct": 0.14994934143870314,
+      "dev_pct": 0.47011144883485306,
+      "snippet": "1. जब ब्लॉक अधिकारी को रिपोर्ट भेजनी हो, इंटरनेट कमजोर हो और नेटवर्क आते ही बिजली गुल हो जाए। तब स्वास्थ्य कर्मी: \n \n \n \n\n \nhttps: //youtu.be/LyfmRdkmE1E\n \n \n \n \n\n \n \n \n \n\n 2. जब शहर से आए डॉक्टर को ग"
+    },
+    {
+      "id": "12858",
+      "latin_pct": 0.10789473684210527,
+      "dev_pct": 0.4953947368421053,
+      "snippet": "हम बिल्लियां हैं, इंसान नहीं। मूड हो तो काम करते हैं, वरना पंजा मारते हैं। नौकरी हम नहीं करते हैं...लोगों को मौका देते हैं कि वो हमसे काम करवा पाते हैं या नहीं। लेकिन क्या करें... इंसानों की बनाई इस प"
+    }
+  ]
+}
