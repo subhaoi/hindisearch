@@ -9,8 +9,16 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 from tqdm import tqdm
+import hashlib
+import struct
 
 from utils import Paths, ensure_dir, read_parquet, write_json, is_nullish
+
+
+def stable_uint64_from_str(s: str) -> int:
+    h = hashlib.sha1(s.encode("utf-8")).digest()
+    # take first 8 bytes as unsigned 64-bit int
+    return struct.unpack(">Q", h[:8])[0]
 
 
 def get_client() -> QdrantClient:
@@ -67,7 +75,7 @@ def main() -> None:
                 "published_date": None if is_nullish(r.get("published_date")) else str(r.get("published_date")),
                 "published_ts": int(r.get("published_ts")) if not is_nullish(r.get("published_ts")) else 0,
             }
-            points.append(qm.PointStruct(id=aid, vector=vec, payload=payload))
+            points.append(qm.PointStruct(id=int(aid), vector=vec, payload=payload))
         try:
             client.upsert(collection_name=c_articles, points=points)
             report["articles_upserted"] += len(points)
@@ -94,7 +102,8 @@ def main() -> None:
                 "title_hi": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
                 "chunk_tokens": int(r.get("chunk_tokens")) if not is_nullish(r.get("chunk_tokens")) else 0,
             }
-            points.append(qm.PointStruct(id=cid, vector=vec, payload=payload))
+            pid = stable_uint64_from_str(cid)
+            points.append(qm.PointStruct(id=pid, vector=vec, payload=payload))
         try:
             client.upsert(collection_name=c_chunks, points=points)
             report["chunks_upserted"] += len(points)
