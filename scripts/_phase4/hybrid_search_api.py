@@ -13,7 +13,7 @@ import typesense
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
+from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
 from .ranker_v1 import ranker_v1
 from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
 

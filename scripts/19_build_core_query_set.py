@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from utils import Paths, ensure_dir, write_json
-
+from scripts.utils import Paths, ensure_dir, write_json
 
 DEFAULT_QUERIES = [
     "महिला सशक्तिकरण",
