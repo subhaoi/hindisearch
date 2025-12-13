@@ -30,35 +30,27 @@ Phase 2 builds a lexical search index in Typesense using the canonical dataset p
   - data/final/articles_canonical.parquet
 
 ## Start Typesense (server recommended)
-1) Copy env file:
-```bash
-cp .env.example .env
-
-Edit .env (choose a strong API key).
-
 Start Typesense:
 
+cp .env.example .env
+# edit .env, set TYPESENSE_API_KEY
 docker compose up -d
 
-Create collection (schema)
-python scripts/10_typesense_create_collection.py --input data/final/articles_canonical.parquet
 
-Ingest documents
-python scripts/11_typesense_ingest.py --input data/final/articles_canonical.parquet
+Create collection:
 
-Quick search smoke test
-python scripts/13_typesense_search_cli.py --q "महिला" --per-page 10
-python scripts/13_typesense_search_cli.py --q "bihar mahila" --per-page 10
-python scripts/13_typesense_search_cli.py --q "karoonga" --per-page 10
+python scripts/05_typesense_create_collection.py
 
-Query canonicalization (Roman→Devanagari v1)
-python scripts/12_query_canonicalize.py --q "karoonga mahila yojana"
-python scripts/12_query_canonicalize.py --q "महिला सशक्तिकरण"
 
-Outputs/logs:
+Ingest from Phase 1 output:
 
-logs/phase2_ingest_report.json
+python scripts/06_typesense_ingest.py --input data/final/articles_canonical.parquet
 
-logs/phase2_search_smoketest.json
 
-logs/roman_canonicalize_report.json
+Search tests:
+
+python scripts/07_typesense_search_cli.py --q "महिला"
+python scripts/07_typesense_search_cli.py --q "bihar mahila yojana"
+python scripts/07_typesense_search_cli.py --q "karoonga"
+python scripts/07_typesense_search_cli.py --q "shiksha karyakram"
+python scripts/07_typesense_search_cli.py --q "बिहार" --filter "locations_norm:=[bihar]"

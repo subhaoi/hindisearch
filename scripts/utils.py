@@ -295,3 +295,29 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
         return {"raw": raw, "mode": "dev", "q": dev, "roman_norm": ""}
     roman_norm = roman_normalize_for_index(raw)
     return {"raw": raw, "mode": "roman", "q": roman_norm, "roman_norm": roman_norm}
+
+# --------- Phase 3: chunking + embeddings helpers ---------
+
+def build_tokenizer_for_mpnet():
+    """
+    Tokenizer for paraphrase-multilingual-mpnet-base-v2.
+    Used only for approximate chunk sizing.
+    """
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+
+
+def count_tokens(tokenizer, text: str) -> int:
+    if is_nullish(text):
+        return 0
+    return len(tokenizer.encode(str(text), add_special_tokens=False))
+
+
+def safe_join(parts: List[str], sep: str = "\n\n") -> str:
+    parts2 = []
+    for p in parts:
+        if not is_nullish(p):
+            s = str(p).strip()
+            if s:
+                parts2.append(s)
+    return sep.join(parts2)
