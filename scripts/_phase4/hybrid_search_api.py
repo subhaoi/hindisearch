@@ -17,6 +17,9 @@ from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is
 from .ranker_v1 import ranker_v1
 from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
 
+from .query_entities import detect_entities
+import json
+
 load_dotenv()
 
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
@@ -70,6 +73,13 @@ def tokenize_query(q: str) -> List[str]:
 
 root = Path(".").resolve()
 paths = Paths(root=root)
+
+GAZ_PATH = paths.data / "phase_45" / "gazetteer_v1.json"
+if not GAZ_PATH.exists():
+    raise RuntimeError(f"Missing {GAZ_PATH}. Run: python scripts/20_build_gazetteer.py")
+
+with GAZ_PATH.open("r", encoding="utf-8") as f:
+    gazetteer = json.load(f)
 
 ARTICLES_PATH = paths.data / "final" / "articles_canonical.parquet"
 CHUNKS_PATH = paths.data / "phase_3" / "chunks.parquet"
@@ -277,7 +287,17 @@ def search(req: SearchRequest) -> SearchResponse:
     query_used = canon["q"]  # lexical
     query_semantic = req.query.strip()  # semantic uses raw
 
-    lex = typesense_search(query_used=query_used, mode=mode, filter_by=req.filter_by)
+    entity = detect_entities(query_used=query_used, mode=mode, gazetteer=gazetteer)
+
+    filter_final = req.filter_by
+    if entity.get("filter_by_auto"):
+        if filter_final:
+            filter_final = f"({filter_final}) && ({entity['filter_by_auto']})"
+        else:
+            filter_final = entity["filter_by_auto"]
+
+    lex = typesense_search(query_used=query_used, mode=mode, filter_by=filter_final)
+
     sem_a = qdrant_search_articles(query_semantic=query_semantic)
     sem_c = qdrant_search_chunks(query_semantic=query_semantic)
 
@@ -311,8 +331,17 @@ def search(req: SearchRequest) -> SearchResponse:
         filters={"filter_by": req.filter_by} if req.filter_by else None,
         ranker_version=RANKER_VERSION,
         retrieval_version=RETRIEVAL_VERSION,
-        meta={"lex_n": len(lex), "sem_article_n": len(sem_a), "sem_chunk_n": len(sem_c), "cand_n": len(candidates)},
-    )
+        meta=meta={
+                    "lex_n": len(lex),
+                    "sem_article_n": len(sem_a),
+                    "sem_chunk_n": len(sem_c),
+                    "cand_n": len(candidates),
+                    "entity_matches": entity.get("matches", {}),
+                    "entity_confidence": entity.get("confidence", {}),
+                    "filter_by_auto": entity.get("filter_by_auto"),
+                    "filter_by_final": filter_final,
+                    }
+        )
 
     # Log top-N ranked candidates (training-grade)
     topn = min(LOG_CANDIDATES_TOPN, len(ranked))
