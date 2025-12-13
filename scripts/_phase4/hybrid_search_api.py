@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import time
+import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,12 +15,12 @@ import typesense
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
-from .ranker_v1 import ranker_v1
-from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
+# IMPORTANT: script-mode imports (python scripts/..). Do NOT use scripts.utils or relative imports.
+from utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
+from ranker_v1 import ranker_v1
+from db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
+from query_entities import detect_entities
 
-from .query_entities import detect_entities
-import json
 
 load_dotenv()
 
@@ -34,7 +36,8 @@ SEM_CHUNK_TOPK = int(os.environ.get("SEM_CHUNK_TOPK", "80"))
 CANDIDATE_CAP = int(os.environ.get("CANDIDATE_CAP", "200"))
 LOG_CANDIDATES_TOPN = int(os.environ.get("LOG_CANDIDATES_TOPN", "200"))
 
-TS_COLLECTION = os.environ.get("TYPESENSE_COLLECTION", os.environ.get("TYPESENSE_COLLECTION", "idr_articles_hi_v1"))
+TS_COLLECTION = os.environ.get("TYPESENSE_COLLECTION", "idr_articles_hi_v1")
+
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 QCOL_ART = os.environ.get("QDRANT_COLLECTION_ARTICLES", "idr_articles_vec_v1")
@@ -64,8 +67,7 @@ def get_qdrant_client() -> QdrantClient:
 
 
 def tokenize_query(q: str) -> List[str]:
-    # Stable, punctuation-aware token split for both scripts (lightweight)
-    import re
+    # Stable token split: Latin words + Devanagari words, ignore 1-char noise.
     q2 = (q or "").lower()
     toks = re.split(r"[^\w\u0900-\u097F]+", q2, flags=re.UNICODE)
     return [t for t in toks if t and len(t) >= 2]
@@ -90,18 +92,29 @@ if not CHUNKS_PATH.exists():
     raise RuntimeError(f"Missing {CHUNKS_PATH}")
 
 articles_df = read_parquet(ARTICLES_PATH)
-articles_meta: Dict[str, Dict[str, Any]] = {}
-def _as_list(v):
+
+
+def _as_list(v: Any) -> List[str]:
+    """
+    Safe conversion for parquet-loaded list-like columns:
+    - avoids `v or []` ambiguity for numpy arrays / lists
+    """
     if is_nullish(v):
         return []
+    if isinstance(v, list):
+        return [str(x) for x in v if not is_nullish(x)]
     try:
-        return list(v)
+        return [str(x) for x in list(v) if not is_nullish(x)]
     except Exception:
         return [str(v)]
 
+
+articles_meta: Dict[str, Dict[str, Any]] = {}
+
 for _, r in articles_df.iterrows():
     aid = str(r.get("id"))
-    cats = _as_list(r.get("categories_raw"))  # human-readable
+
+    cats = _as_list(r.get("categories_raw"))  # display
     tags = _as_list(r.get("tags_raw"))
     locs = _as_list(r.get("locations_raw"))
     contrib = _as_list(r.get("contributors_raw"))
@@ -114,8 +127,9 @@ for _, r in articles_df.iterrows():
         "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
         "summary": None if is_nullish(r.get("summary_hi")) else str(r.get("summary_hi")),
         "published_date": None if is_nullish(r.get("published_date")) else str(r.get("published_date")),
-        "published_ts": int(r.get("published_ts")) if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts")) else 0,
-
+        "published_ts": int(r.get("published_ts"))
+        if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts"))
+        else 0,
         # display fields
         "primary_category": primary_category,
         "categories": cats,
@@ -123,7 +137,6 @@ for _, r in articles_df.iterrows():
         "location": locs,
         "partner_label": None if is_nullish(r.get("partner_label")) else str(r.get("partner_label")),
         "contributors": contrib,
-
         # norm fields for ranker overlap
         "categories_norm": _as_list(r.get("categories_norm")),
         "tags_norm": _as_list(r.get("tags_norm")),
@@ -131,12 +144,10 @@ for _, r in articles_df.iterrows():
         "contributors_norm": _as_list(r.get("contributors_norm")),
     }
 
-
-
 chunks_df = read_parquet(CHUNKS_PATH)
 chunk_text_map = dict(zip(chunks_df["chunk_id"].astype(str), chunks_df["chunk_text"].astype(str)))
 
-app = FastAPI(title="IDR Hybrid Search API (Phase 4)")
+app = FastAPI(title="IDR Hybrid Search API (Phase 5)")
 
 ts = get_typesense_client()
 qd = get_qdrant_client()
@@ -171,7 +182,6 @@ class SearchHit(BaseModel):
     score: float
     snippet: Optional[str] = None
 
-    # keep internal optional
     features: Optional[Dict[str, Any]] = None
     explanation: Optional[List[Any]] = None
 
@@ -190,16 +200,16 @@ class LabelRequest(BaseModel):
     label: int
     note: Optional[str] = None
 
+
 class QueryLabelRequest(BaseModel):
     query_id: int
-    label: int  # only 0 supported here (nothing relevant)
+    label: int  # only 0 supported here
     note: Optional[str] = None
 
+
 def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
-    if mode == "dev":
-        query_by = "title_hi,summary_hi,content_hi"
-    else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm"
+    # query_used is already canonicalized; mode determines which indexed fields to use
+    query_by = "title_hi,summary_hi,content_hi" if mode == "dev" else "title_roman_norm,summary_roman_norm,content_roman_norm"
 
     params: Dict[str, Any] = {
         "q": query_used,
@@ -214,15 +224,10 @@ def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> Li
 
     res = ts.collections[TS_COLLECTION].documents.search(params)
     hits = res.get("hits", []) or []
-    out = []
+    out: List[Dict[str, Any]] = []
     for h in hits:
         doc = h.get("document", {}) or {}
-        out.append(
-            {
-                "article_id": str(doc.get("id")),
-                "lexical_score": float(h.get("text_match", 0.0)),
-            }
-        )
+        out.append({"article_id": str(doc.get("id")), "lexical_score": float(h.get("text_match", 0.0))})
     return out
 
 
@@ -253,20 +258,17 @@ def build_candidates(
 ) -> List[Dict[str, Any]]:
     cand: Dict[str, Dict[str, Any]] = {}
 
-    # lexical
     for x in lex_hits:
         aid = x["article_id"]
         c = cand.setdefault(aid, {})
         c["lexical_score"] = max(float(c.get("lexical_score", 0.0)), float(x.get("lexical_score", 0.0)))
         c["src_lexical"] = True
 
-    # semantic articles
     for aid, s in sem_art:
         c = cand.setdefault(aid, {})
         c["sem_article"] = max(float(c.get("sem_article", 0.0)), float(s))
         c["src_sem_article"] = True
 
-    # semantic chunks (best snippet chunk)
     for cid, aid, s in sem_chk:
         c = cand.setdefault(aid, {})
         best = float(c.get("sem_chunk", 0.0))
@@ -278,33 +280,35 @@ def build_candidates(
     out: List[Dict[str, Any]] = []
     for aid, c in cand.items():
         m = articles_meta.get(aid, {})
-        out.append({
-                    "article_id": aid,
-                    "url": m.get("url"),
-                    "title": m.get("title"),
-                    "summary": m.get("summary"),
-                    "published_date": m.get("published_date"),
-                    "published_ts": int(m.get("published_ts") or 0),
+        out.append(
+            {
+                "article_id": aid,
+                "url": m.get("url"),
+                "title": m.get("title"),
+                "summary": m.get("summary"),
+                "published_date": m.get("published_date"),
+                "published_ts": int(m.get("published_ts") or 0),
+                "primary_category": m.get("primary_category"),
+                "categories": m.get("categories") if isinstance(m.get("categories"), list) else [],
+                "tags": m.get("tags") if isinstance(m.get("tags"), list) else [],
+                "location": m.get("location") if isinstance(m.get("location"), list) else [],
+                "partner_label": m.get("partner_label"),
+                "contributors": m.get("contributors") if isinstance(m.get("contributors"), list) else [],
+                "categories_norm": m.get("categories_norm") if isinstance(m.get("categories_norm"), list) else [],
+                "tags_norm": m.get("tags_norm") if isinstance(m.get("tags_norm"), list) else [],
+                "locations_norm": m.get("locations_norm") if isinstance(m.get("locations_norm"), list) else [],
+                "contributors_norm": m.get("contributors_norm") if isinstance(m.get("contributors_norm"), list) else [],
+                "lexical_score": float(c.get("lexical_score", 0.0)),
+                "sem_article": float(c.get("sem_article", 0.0)),
+                "sem_chunk": float(c.get("sem_chunk", 0.0)),
+                "best_chunk_id": c.get("best_chunk_id"),
+            }
+        )
 
-                    "primary_category": m.get("primary_category"),
-                    "categories": m.get("categories") or [],
-                    "tags": m.get("tags") or [],
-                    "location": m.get("location") or [],
-                    "partner_label": m.get("partner_label"),
-                    "contributors": m.get("contributors") or [],
-
-                    "categories_norm": m.get("categories_norm") or [],
-                    "tags_norm": m.get("tags_norm") or [],
-                    "locations_norm": m.get("locations_norm") or [],
-                    "contributors_norm": m.get("contributors_norm") or [],
-
-                    "lexical_score": float(c.get("lexical_score", 0.0)),
-                    "sem_article": float(c.get("sem_article", 0.0)),
-                    "sem_chunk": float(c.get("sem_chunk", 0.0)),
-                    "best_chunk_id": c.get("best_chunk_id"),
-                })
-
-    out.sort(key=lambda z: (z.get("lexical_score", 0.0) + z.get("sem_chunk", 0.0) + z.get("sem_article", 0.0)), reverse=True)
+    out.sort(
+        key=lambda z: (z.get("lexical_score", 0.0) + z.get("sem_chunk", 0.0) + z.get("sem_article", 0.0)),
+        reverse=True,
+    )
     return out[:CANDIDATE_CAP]
 
 
@@ -331,20 +335,17 @@ def search(req: SearchRequest) -> SearchResponse:
 
     canon = canonicalize_query_for_search(req.query)
     mode = canon["mode"]
-    query_used = canon["q"]  # lexical
+    query_used = canon["q"]  # lexical/canonicalized
     query_semantic = req.query.strip()  # semantic uses raw
 
     entity = detect_entities(query_used=query_used, mode=mode, gazetteer=gazetteer)
 
     filter_final = req.filter_by
-    if entity.get("filter_by_auto"):
-        if filter_final:
-            filter_final = f"({filter_final}) && ({entity['filter_by_auto']})"
-        else:
-            filter_final = entity["filter_by_auto"]
+    auto_f = entity.get("filter_by_auto")
+    if auto_f:
+        filter_final = f"({filter_final}) && ({auto_f})" if filter_final else auto_f
 
     lex = typesense_search(query_used=query_used, mode=mode, filter_by=filter_final)
-
     sem_a = qdrant_search_articles(query_semantic=query_semantic)
     sem_c = qdrant_search_chunks(query_semantic=query_semantic)
 
@@ -359,8 +360,10 @@ def search(req: SearchRequest) -> SearchResponse:
         hits.append(
             SearchHit(
                 rank=item["rank"],
-                article_id=item["article_id"],
+                id=item["article_id"],
                 title=item.get("title"),
+                date=item.get("published_date"),
+                summary=item.get("summary"),
                 url=item.get("url"),
                 primary_category=item.get("primary_category"),
                 categories=item.get("categories") or [],
@@ -393,33 +396,40 @@ def search(req: SearchRequest) -> SearchResponse:
             "entity_confidence": entity.get("confidence", {}),
             "filter_by_auto": entity.get("filter_by_auto"),
             "filter_by_final": filter_final,
+        },
+    )
+
+    topn = min(LOG_CANDIDATES_TOPN, len(ranked))
+    to_log: List[Dict[str, Any]] = []
+    for item in ranked[:topn]:
+        to_log.append(
+            {
+                "rank": item["rank"],
+                "article_id": item["article_id"],
+                "url": item.get("url"),
+                "title": item.get("title"),
+                "published_date": item.get("published_date"),
+                "summary": item.get("summary"),
+                "primary_category": item.get("primary_category"),
+                "categories": item.get("categories") or [],
+                "tags": item.get("tags") or [],
+                "location": item.get("location") or [],
+                "partner_label": item.get("partner_label"),
+                "contributors": item.get("contributors") or [],
+                "score": float(item["score"]),
+                "features": item["features"],
+                "explanation": item.get("explanation"),
             }
         )
-
-    # Log top-N ranked candidates (training-grade)
-    topn = min(LOG_CANDIDATES_TOPN, len(ranked))
-    to_log = []
-    for item in ranked[:topn]:
-        to_log.append({
-            "rank": item["rank"],
-            "article_id": item["article_id"],
-            "url": item.get("url"),
-            "title": item.get("title"),
-            "published_date": item.get("published_date"),
-            "summary": item.get("summary"),
-            "primary_category": item.get("primary_category"),
-            "categories": item.get("categories") or [],
-            "tags": item.get("tags") or [],
-            "location": item.get("location") or [],
-            "partner_label": item.get("partner_label"),
-            "contributors": item.get("contributors") or [],
-            "score": float(item["score"]),
-            "features": item["features"],
-            "explanation": item.get("explanation"),
-        })
     insert_candidates(engine, qid, to_log)
 
-    return SearchResponse(query_id=qid, mode=mode, query_used=query_used, query_semantic=query_semantic, results=hits)
+    return SearchResponse(
+        query_id=qid,
+        mode=mode,
+        query_used=query_used,
+        query_semantic=query_semantic,
+        results=hits,
+    )
 
 
 @app.post("/label")
@@ -429,10 +439,10 @@ def label(req: LabelRequest) -> Dict[str, Any]:
     insert_label(engine, req.query_id, req.article_id, req.label, req.note)
     return {"ok": True}
 
+
 @app.post("/label_query")
 def label_query(req: QueryLabelRequest) -> Dict[str, Any]:
     if req.label != 0:
         raise HTTPException(status_code=400, detail="Only label=0 supported for query-level feedback")
-    # store as labels row with article_id NULL
     insert_label(engine, req.query_id, None, 0, req.note)
     return {"ok": True}
