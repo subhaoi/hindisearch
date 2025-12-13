@@ -1,7 +1,6 @@
-version: "3.8"
 services:
   typesense:
-    image: typesense/typesense:0.26.0
+    image: typesense/typesense:26.0
     container_name: typesense
     restart: unless-stopped
     environment:
