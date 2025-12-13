@@ -91,21 +91,46 @@ if not CHUNKS_PATH.exists():
 
 articles_df = read_parquet(ARTICLES_PATH)
 articles_meta: Dict[str, Dict[str, Any]] = {}
+def _as_list(v):
+    if is_nullish(v):
+        return []
+    try:
+        return list(v)
+    except Exception:
+        return [str(v)]
+
 for _, r in articles_df.iterrows():
     aid = str(r.get("id"))
+    cats = _as_list(r.get("categories_raw"))  # human-readable
+    tags = _as_list(r.get("tags_raw"))
+    locs = _as_list(r.get("locations_raw"))
+    contrib = _as_list(r.get("contributors_raw"))
+
+    primary_category = cats[0] if len(cats) > 0 else None
+
     articles_meta[aid] = {
-    "url": None if is_nullish(r.get("url")) else str(r.get("url")),
-    "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
-    "published_ts": (
-        int(r.get("published_ts"))
-        if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts"))
-        else 0
-    ),
-    "categories_norm": [] if is_nullish(r.get("categories_norm")) else list(r.get("categories_norm")),
-    "tags_norm": [] if is_nullish(r.get("tags_norm")) else list(r.get("tags_norm")),
-    "locations_norm": [] if is_nullish(r.get("locations_norm")) else list(r.get("locations_norm")),
-    "contributors_norm": [] if is_nullish(r.get("contributors_norm")) else list(r.get("contributors_norm")),
+        "id": aid,
+        "url": None if is_nullish(r.get("url")) else str(r.get("url")),
+        "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
+        "summary": None if is_nullish(r.get("summary_hi")) else str(r.get("summary_hi")),
+        "published_date": None if is_nullish(r.get("published_date")) else str(r.get("published_date")),
+        "published_ts": int(r.get("published_ts")) if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts")) else 0,
+
+        # display fields
+        "primary_category": primary_category,
+        "categories": cats,
+        "tags": tags,
+        "location": locs,
+        "partner_label": None if is_nullish(r.get("partner_label")) else str(r.get("partner_label")),
+        "contributors": contrib,
+
+        # norm fields for ranker overlap
+        "categories_norm": _as_list(r.get("categories_norm")),
+        "tags_norm": _as_list(r.get("tags_norm")),
+        "locations_norm": _as_list(r.get("locations_norm")),
+        "contributors_norm": _as_list(r.get("contributors_norm")),
     }
+
 
 
 chunks_df = read_parquet(CHUNKS_PATH)
@@ -130,11 +155,23 @@ class SearchRequest(BaseModel):
 
 class SearchHit(BaseModel):
     rank: int
-    article_id: str
+    id: str
     title: Optional[str] = None
+    date: Optional[str] = None
+    summary: Optional[str] = None
     url: Optional[str] = None
+
+    primary_category: Optional[str] = None
+    categories: List[str] = []
+    tags: List[str] = []
+    location: List[str] = []
+    partner_label: Optional[str] = None
+    contributors: List[str] = []
+
     score: float
     snippet: Optional[str] = None
+
+    # keep internal optional
     features: Optional[Dict[str, Any]] = None
     explanation: Optional[List[Any]] = None
 
@@ -153,6 +190,10 @@ class LabelRequest(BaseModel):
     label: int
     note: Optional[str] = None
 
+class QueryLabelRequest(BaseModel):
+    query_id: int
+    label: int  # only 0 supported here (nothing relevant)
+    note: Optional[str] = None
 
 def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
     if mode == "dev":
@@ -237,25 +278,31 @@ def build_candidates(
     out: List[Dict[str, Any]] = []
     for aid, c in cand.items():
         m = articles_meta.get(aid, {})
-        out.append(
-            {
-                "article_id": aid,
-                "url": m.get("url"),
-                "title": m.get("title"),
-                "published_ts": int(m.get("published_ts") or 0),
-                "categories_norm": m.get("categories_norm") or [],
-                "tags_norm": m.get("tags_norm") or [],
-                "locations_norm": m.get("locations_norm") or [],
-                "contributors_norm": m.get("contributors_norm") or [],
-                "lexical_score": float(c.get("lexical_score", 0.0)),
-                "sem_article": float(c.get("sem_article", 0.0)),
-                "sem_chunk": float(c.get("sem_chunk", 0.0)),
-                "best_chunk_id": c.get("best_chunk_id"),
-                "src_lexical": bool(c.get("src_lexical", False)),
-                "src_sem_article": bool(c.get("src_sem_article", False)),
-                "src_sem_chunk": bool(c.get("src_sem_chunk", False)),
-            }
-        )
+        out.append({
+                    "article_id": aid,
+                    "url": m.get("url"),
+                    "title": m.get("title"),
+                    "summary": m.get("summary"),
+                    "published_date": m.get("published_date"),
+                    "published_ts": int(m.get("published_ts") or 0),
+
+                    "primary_category": m.get("primary_category"),
+                    "categories": m.get("categories") or [],
+                    "tags": m.get("tags") or [],
+                    "location": m.get("location") or [],
+                    "partner_label": m.get("partner_label"),
+                    "contributors": m.get("contributors") or [],
+
+                    "categories_norm": m.get("categories_norm") or [],
+                    "tags_norm": m.get("tags_norm") or [],
+                    "locations_norm": m.get("locations_norm") or [],
+                    "contributors_norm": m.get("contributors_norm") or [],
+
+                    "lexical_score": float(c.get("lexical_score", 0.0)),
+                    "sem_article": float(c.get("sem_article", 0.0)),
+                    "sem_chunk": float(c.get("sem_chunk", 0.0)),
+                    "best_chunk_id": c.get("best_chunk_id"),
+                })
 
     out.sort(key=lambda z: (z.get("lexical_score", 0.0) + z.get("sem_chunk", 0.0) + z.get("sem_article", 0.0)), reverse=True)
     return out[:CANDIDATE_CAP]
@@ -315,6 +362,12 @@ def search(req: SearchRequest) -> SearchResponse:
                 article_id=item["article_id"],
                 title=item.get("title"),
                 url=item.get("url"),
+                primary_category=item.get("primary_category"),
+                categories=item.get("categories") or [],
+                tags=item.get("tags") or [],
+                location=item.get("location") or [],
+                partner_label=item.get("partner_label"),
+                contributors=item.get("contributors") or [],
                 score=float(item["score"]),
                 snippet=choose_snippet(item),
                 features=item["features"] if req.explain else None,
@@ -347,16 +400,23 @@ def search(req: SearchRequest) -> SearchResponse:
     topn = min(LOG_CANDIDATES_TOPN, len(ranked))
     to_log = []
     for item in ranked[:topn]:
-        to_log.append(
-            {
-                "rank": item["rank"],
-                "article_id": item["article_id"],
-                "url": item.get("url"),
-                "title": item.get("title"),
-                "score": float(item["score"]),
-                "features": item["features"],
-            }
-        )
+        to_log.append({
+            "rank": item["rank"],
+            "article_id": item["article_id"],
+            "url": item.get("url"),
+            "title": item.get("title"),
+            "published_date": item.get("published_date"),
+            "summary": item.get("summary"),
+            "primary_category": item.get("primary_category"),
+            "categories": item.get("categories") or [],
+            "tags": item.get("tags") or [],
+            "location": item.get("location") or [],
+            "partner_label": item.get("partner_label"),
+            "contributors": item.get("contributors") or [],
+            "score": float(item["score"]),
+            "features": item["features"],
+            "explanation": item.get("explanation"),
+        })
     insert_candidates(engine, qid, to_log)
 
     return SearchResponse(query_id=qid, mode=mode, query_used=query_used, query_semantic=query_semantic, results=hits)
@@ -367,4 +427,12 @@ def label(req: LabelRequest) -> Dict[str, Any]:
     if req.label not in (0, 1):
         raise HTTPException(status_code=400, detail="label must be 0 or 1")
     insert_label(engine, req.query_id, req.article_id, req.label, req.note)
+    return {"ok": True}
+
+@app.post("/label_query")
+def label_query(req: QueryLabelRequest) -> Dict[str, Any]:
+    if req.label != 0:
+        raise HTTPException(status_code=400, detail="Only label=0 supported for query-level feedback")
+    # store as labels row with article_id NULL
+    insert_label(engine, req.query_id, None, 0, req.note)
     return {"ok": True}

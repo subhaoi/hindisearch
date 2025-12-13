@@ -38,14 +38,23 @@ DDL_STATEMENTS = [
     """,
     """
     CREATE TABLE IF NOT EXISTS candidate_log (
-      id BIGSERIAL PRIMARY KEY,
-      query_id BIGINT NOT NULL REFERENCES query_log(id) ON DELETE CASCADE,
-      rank INT NOT NULL,
-      article_id TEXT NOT NULL,
-      url TEXT NULL,
-      title TEXT NULL,
-      score DOUBLE PRECISION NOT NULL,
-      features JSONB NOT NULL
+        id BIGSERIAL PRIMARY KEY,
+        query_id BIGINT NOT NULL REFERENCES query_log(id) ON DELETE CASCADE,
+        rank INT NOT NULL,
+        article_id TEXT NOT NULL,
+        url TEXT NULL,
+        title TEXT NULL,
+        published_date TEXT NULL,
+        summary TEXT NULL,
+        primary_category TEXT NULL,
+        categories JSONB NULL,
+        tags JSONB NULL,
+        location JSONB NULL,
+        partner_label TEXT NULL,
+        contributors JSONB NULL,
+        score DOUBLE PRECISION NOT NULL,
+        features JSONB NOT NULL,
+        explanation JSONB NULL
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_candidate_query_id ON candidate_log(query_id)",
@@ -115,8 +124,17 @@ def insert_query(
 def insert_candidates(engine: Engine, query_id: int, ranked: List[Dict[str, Any]]) -> None:
     stmt = text(
         """
-        INSERT INTO candidate_log(query_id, rank, article_id, url, title, score, features)
-        VALUES (:qid, :rank, :aid, :url, :title, :score, CAST(:features AS jsonb))
+        INSERT INTO candidate_log(
+          query_id, rank, article_id, url, title, published_date, summary,
+          primary_category, categories, tags, location, partner_label, contributors,
+          score, features, explanation
+        )
+        VALUES (
+          :qid, :rank, :aid, :url, :title, :published_date, :summary,
+          :primary_category, CAST(:categories AS jsonb), CAST(:tags AS jsonb), CAST(:location AS jsonb),
+          :partner_label, CAST(:contributors AS jsonb),
+          :score, CAST(:features AS jsonb), CAST(:explanation AS jsonb)
+        )
         """
     )
     with engine.begin() as conn:
@@ -129,8 +147,17 @@ def insert_candidates(engine: Engine, query_id: int, ranked: List[Dict[str, Any]
                     "aid": str(r["article_id"]),
                     "url": r.get("url"),
                     "title": r.get("title"),
+                    "published_date": r.get("published_date"),
+                    "summary": r.get("summary"),
+                    "primary_category": r.get("primary_category"),
+                    "categories": json.dumps(r.get("categories") or []),
+                    "tags": json.dumps(r.get("tags") or []),
+                    "location": json.dumps(r.get("location") or []),
+                    "partner_label": r.get("partner_label"),
+                    "contributors": json.dumps(r.get("contributors") or []),
                     "score": float(r["score"]),
                     "features": json.dumps(r["features"]),
+                    "explanation": json.dumps(r.get("explanation")),
                 },
             )
 
