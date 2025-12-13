@@ -83,33 +83,40 @@ def insert_query(
 ) -> int:
     q = text(
         """
-        INSERT INTO query_log(query_raw, query_mode, query_used, query_semantic, filters, ranker_version, retrieval_version, meta)
-        VALUES (:qr, :qm, :qu, :qs, :filters::jsonb, :rv, :tv, :meta::jsonb)
+        INSERT INTO query_log(
+          query_raw, query_mode, query_used, query_semantic,
+          filters, ranker_version, retrieval_version, meta
+        )
+        VALUES (
+          :qr, :qm, :qu, :qs,
+          CAST(:filters AS jsonb), :rv, :tv, CAST(:meta AS jsonb)
+        )
         RETURNING id
         """
     )
+
+    payload = {
+        "qr": query_raw,
+        "qm": query_mode,
+        "qu": query_used,
+        "qs": query_semantic,
+        "filters": json.dumps(filters) if filters is not None else None,
+        "rv": ranker_version,
+        "tv": retrieval_version,
+        "meta": json.dumps(meta) if meta is not None else None,
+    }
+
     with engine.begin() as conn:
-        res = conn.execute(
-            q,
-            {
-                "qr": query_raw,
-                "qm": query_mode,
-                "qu": query_used,
-                "qs": query_semantic,
-                "filters": json.dumps(filters) if filters is not None else None,
-                "rv": ranker_version,
-                "tv": retrieval_version,
-                "meta": json.dumps(meta) if meta is not None else None,
-            },
-        ).fetchone()
+        res = conn.execute(q, payload).fetchone()
         return int(res[0])
+
 
 
 def insert_candidates(engine: Engine, query_id: int, ranked: List[Dict[str, Any]]) -> None:
     stmt = text(
         """
         INSERT INTO candidate_log(query_id, rank, article_id, url, title, score, features)
-        VALUES (:qid, :rank, :aid, :url, :title, :score, :features::jsonb)
+        VALUES (:qid, :rank, :aid, :url, :title, :score, CAST(:features AS jsonb))
         """
     )
     with engine.begin() as conn:
