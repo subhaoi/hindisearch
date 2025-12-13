@@ -45,61 +45,66 @@ let lastResults = [];
 async function doSearch() {
   const q = document.getElementById("q").value.trim();
   if (!q) return;
+
   const res = await fetch("/proxy_search", {
     method: "POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({query:q, per_page:10, explain:false})
   });
+
   const data = await res.json();
   lastQueryId = data.query_id;
   lastResults = data.results || [];
-  document.getElementById("qid").innerText = "query_id: " + lastQueryId + " | mode: " + data.mode + " | query_used: " + data.query_used;
+
+  document.getElementById("qid").innerText =
+    "query_id: " + lastQueryId +
+    " | mode: " + data.mode +
+    " | query_used: " + data.query_used;
 
   const root = document.getElementById("results");
   root.innerHTML = "";
-  for (const hit of lastResults) {
+
+  lastResults.forEach(hit => {
     const card = document.createElement("div");
     card.className = "card";
 
-    const title = document.createElement("div");
-    title.innerHTML = "<b>" + (hit.title || "") + "</b>";
-    card.appendChild(title);
-
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    meta.innerHTML =
-      "Date: " + (hit.date || "") +
-      " | ID: " + hit.id +
-      " | <a href='" + (hit.url||"#") + "' target='_blank'>open</a>";
-    card.appendChild(meta);
-
-    const summary = document.createElement("div");
-    summary.className = "small";
-    summary.innerText = (hit.summary || "").slice(0, 380);
-    card.appendChild(summary);
-
-    const pills = document.createElement("div");
-    pills.className = "small";
-    pills.innerHTML =
-      (hit.primary_category ? "<span class='pill'>Primary: " + hit.primary_category + "</span>" : "") +
-      (hit.partner_label ? "<span class='pill'>Partner: " + hit.partner_label + "</span>" : "") +
-      (hit.location || []).slice(0,4).map(x=>"<span class='pill'>Loc: "+x+"</span>").join("") +
-      (hit.tags || []).slice(0,4).map(x=>"<span class='pill'>Tag: "+x+"</span>").join("");
-    card.appendChild(pills);
+    card.innerHTML = `
+      <div><b>${hit.title || ""}</b></div>
+      <div class="meta">
+        Date: ${hit.date || ""} |
+        ID: ${hit.id} |
+        <a href="${hit.url || "#"}" target="_blank">open</a>
+      </div>
+      <div class="small">${(hit.summary || "").slice(0, 380)}</div>
+      <div class="small">
+        ${hit.primary_category ? `<span class="pill">Primary: ${hit.primary_category}</span>` : ""}
+        ${hit.partner_label ? `<span class="pill">Partner: ${hit.partner_label}</span>` : ""}
+        ${(hit.location || []).slice(0,4).map(x=>`<span class="pill">Loc: ${x}</span>`).join("")}
+        ${(hit.tags || []).slice(0,4).map(x=>`<span class="pill">Tag: ${x}</span>`).join("")}
+      </div>
+    `;
 
     const note = document.createElement("textarea");
-    note.placeholder = "Optional note (why relevant/irrelevant)…";
-    card.appendChild(note);
+    note.placeholder = "Optional note (why relevant / irrelevant)…";
 
     const row = document.createElement("div");
     row.className = "row";
-    row.innerHTML =
-      "<button onclick='labelItem(\""+hit.id+"\",1, this.parentNode.parentNode.querySelector(\"textarea\").value)'>Correct</button>" +
-      "<button onclick='labelItem(\""+hit.id+"\",0, this.parentNode.parentNode.querySelector(\"textarea\").value)'>Wrong</button>";
-    card.appendChild(row);
 
+    const okBtn = document.createElement("button");
+    okBtn.innerText = "Correct";
+    okBtn.onclick = () => labelItem(hit.id, 1, note.value);
+
+    const badBtn = document.createElement("button");
+    badBtn.innerText = "Wrong";
+    badBtn.onclick = () => labelItem(hit.id, 0, note.value);
+
+    row.appendChild(okBtn);
+    row.appendChild(badBtn);
+
+    card.appendChild(note);
+    card.appendChild(row);
     root.appendChild(card);
-  }
+  });
 }
 
 async function labelItem(articleId, label, note) {
@@ -107,7 +112,12 @@ async function labelItem(articleId, label, note) {
   await fetch("/proxy_label", {
     method: "POST",
     headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({query_id:lastQueryId, article_id:articleId, label:label, note:note || null})
+    body: JSON.stringify({
+      query_id: lastQueryId,
+      article_id: articleId,
+      label: label,
+      note: note || null
+    })
   });
 }
 
@@ -117,10 +127,15 @@ async function markNone() {
   await fetch("/proxy_label_query", {
     method: "POST",
     headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({query_id:lastQueryId, label:0, note:note})
+    body: JSON.stringify({
+      query_id: lastQueryId,
+      label: 0,
+      note: note
+    })
   });
 }
 </script>
+
 </body>
 </html>
 """
@@ -154,3 +169,7 @@ def proxy_label(req: LabelReq):
 def proxy_label_query(req: LabelReq):
     r = requests.post(f"{API_BASE}/label_query", json={"query_id": req.query_id, "label": 0, "note": req.note}, timeout=60)
     return JSONResponse(r.json(), status_code=r.status_code)
+
+@app.get("/favicon.ico")
+def favicon():
+    return {}
