@@ -84,14 +84,19 @@ articles_meta: Dict[str, Dict[str, Any]] = {}
 for _, r in articles_df.iterrows():
     aid = str(r.get("id"))
     articles_meta[aid] = {
-        "url": None if is_nullish(r.get("url")) else str(r.get("url")),
-        "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
-        "published_ts": int(r.get("published_ts")) if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts")) else 0,
-        "categories_norm": r.get("categories_norm") or [],
-        "tags_norm": r.get("tags_norm") or [],
-        "locations_norm": r.get("locations_norm") or [],
-        "contributors_norm": r.get("contributors_norm") or [],
+    "url": None if is_nullish(r.get("url")) else str(r.get("url")),
+    "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
+    "published_ts": (
+        int(r.get("published_ts"))
+        if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts"))
+        else 0
+    ),
+    "categories_norm": [] if is_nullish(r.get("categories_norm")) else list(r.get("categories_norm")),
+    "tags_norm": [] if is_nullish(r.get("tags_norm")) else list(r.get("tags_norm")),
+    "locations_norm": [] if is_nullish(r.get("locations_norm")) else list(r.get("locations_norm")),
+    "contributors_norm": [] if is_nullish(r.get("contributors_norm")) else list(r.get("contributors_norm")),
     }
+
 
 chunks_df = read_parquet(CHUNKS_PATH)
 chunk_text_map = dict(zip(chunks_df["chunk_id"].astype(str), chunks_df["chunk_text"].astype(str)))
