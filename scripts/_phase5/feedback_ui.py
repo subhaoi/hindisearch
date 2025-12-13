@@ -26,164 +26,20 @@ HTML = """
       --bg:#ffffff;
       --link:#1aa6a6;
     }
-    body{
-      margin:0;
-      background:var(--bg);
-      color:var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    }
+    body{ margin:0; background:var(--bg); color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     .wrap{ max-width: 980px; margin: 0 auto; padding: 22px 18px 60px; }
 
-    .searchbar{
-      display:flex; gap:10px; align-items:stretch;
-      margin-bottom: 14px;
-    }
-    .searchbar input{
-      flex:1;
-      border:1px solid var(--line);
-      padding: 12px 12px;
-      font-size:16px;
-      outline:none;
-    }
-    .searchbar button{
-      border:0;
-      background:var(--red);
-      color:white;
-      padding: 0 18px;
-      font-weight:700;
-      letter-spacing:.08em;
-      text-transform:uppercase;
-      cursor:pointer;
-    }
+    .searchbar{ display:flex; gap:10px; align-items:stretch; margin-bottom: 14px; }
+    .searchbar input{ flex:1; border:1px solid var(--line); padding: 12px 12px; font-size:16px; outline:none; }
+    .searchbar button{ border:0; background:var(--red); color:white; padding: 0 18px;
+      font-weight:700; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; }
 
-    .controls{
-      display:flex;
-      gap:18px;
-      align-items:center;
-      margin: 8px 0 18px;
-    }
-    .controls .label{
-      width: 80px;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing:.18em;
-      text-transform:uppercase;
-      color:#000;
-    }
-    .controls .opts{
-      display:flex; gap:14px; align-items:center; flex-wrap:wrap;
-      font-size:12px;
-      letter-spacing:.10em;
-      text-transform:uppercase;
-      color:var(--muted);
-    }
-    .controls .opts a{
-      color:inherit;
-      text-decoration:none;
-      cursor:pointer;
-      padding: 2px 0;
-      border-bottom: 2px solid transparent;
-    }
-    .controls .opts a.active{
-      color:#000;
-      border-bottom-color:#000;
-    }
-    .sep{ color: var(--line); }
-
-    .qid{
-      margin: 10px 0 14px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .result{
-      display:flex;
-      gap: 22px;
-      padding: 18px 0;
-      border-top: 1px solid var(--line);
-    }
-    .result:first-child{ border-top: 0; }
-    .left{ flex: 1; min-width: 0; }
-    .right{ width: 0; display:none; } /* no image */
-
-    .kicker{
-      font-size: 12px;
-      letter-spacing: .14em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .date{
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .title{
-      font-size: 22px;
-      line-height: 1.15;
-      font-weight: 800;
-      margin: 0 0 8px;
-    }
-    .summary{
-      font-size: 14px;
-      line-height: 1.45;
-      color: #2a2a2a;
-      margin: 0 0 10px;
-      max-width: 72ch;
-    }
-    .meta{
-      font-size: 12px;
-      color: var(--muted);
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      align-items:center;
-      margin-bottom: 10px;
-    }
-    .meta a{ color: var(--link); text-decoration:none; font-weight:700; }
-    .pill{
-      border:1px solid var(--line);
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11px;
-      color: #333;
-      background: #fff;
-    }
-    textarea{
-      width:100%;
-      border:1px solid var(--line);
-      padding:10px;
-      font-size:13px;
-      resize:vertical;
-      margin-top: 10px;
-    }
-    .actions{
-      display:flex;
-      gap:10px;
-      margin-top: 10px;
-    }
-    .btn{
-      border:1px solid var(--line);
-      background:#fff;
-      padding: 9px 12px;
-      cursor:pointer;
-      font-weight:700;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-size:12px;
-    }
-    .btn.red{
-      border-color: var(--red);
-      color: var(--red);
-    }
-    .btn.black{
-      border-color:#000;
-      color:#000;
-    }
-    .footer-actions{
-      border-top: 1px solid var(--line);
-      padding-top: 14px;
-      margin-top: 18px;
+    .top-actions{
+      border-top:1px solid var(--line);
+      border-bottom:1px solid var(--line);
+      padding:12px 0;
+      margin: 6px 0 14px;
       display:flex;
       justify-content:space-between;
       align-items:center;
@@ -191,6 +47,64 @@ HTML = """
       flex-wrap:wrap;
     }
     .hint{ font-size:12px; color: var(--muted); }
+
+    .controls{ display:flex; gap:18px; align-items:center; margin: 8px 0 18px; }
+    .controls .label{
+      width: 80px; font-size: 12px; font-weight: 800; letter-spacing:.18em;
+      text-transform:uppercase; color:#000;
+    }
+    .controls .opts{
+      display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+      font-size:12px; letter-spacing:.10em; text-transform:uppercase; color:var(--muted);
+    }
+    .controls .opts a{
+      color:inherit; text-decoration:none; cursor:pointer; padding: 2px 0;
+      border-bottom: 2px solid transparent;
+    }
+    .controls .opts a.active{ color:#000; border-bottom-color:#000; }
+    .sep{ color: var(--line); }
+
+    .qid{ margin: 10px 0 14px; font-size: 12px; color: var(--muted); }
+
+    .result{ display:flex; gap: 22px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .result:first-child{ border-top: 0; }
+    .left{ flex: 1; min-width: 0; }
+
+    .kicker{ font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 6px; }
+    .date{ font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+
+    .title{
+      font-size: 22px; line-height: 1.15; font-weight: 800; margin: 0 0 8px;
+    }
+    .title a{ color: var(--text); text-decoration:none; }
+    .title a:hover{ text-decoration: underline; }
+
+    .summary{ font-size: 14px; line-height: 1.45; color: #2a2a2a; margin: 0 0 10px; max-width: 72ch; }
+
+    .meta{
+      font-size: 12px; color: var(--muted); display:flex; flex-wrap:wrap; gap:8px;
+      align-items:center; margin-bottom: 10px;
+    }
+    .pill{ border:1px solid var(--line); padding: 2px 8px; border-radius: 999px; font-size: 11px; color: #333; background: #fff; }
+
+    textarea{ width:100%; border:1px solid var(--line); padding:10px; font-size:13px; resize:vertical; margin-top: 10px; }
+
+    .actions{ display:flex; gap:10px; margin-top: 10px; }
+    .btn{
+      border:1px solid var(--line); background:#fff; padding: 9px 12px; cursor:pointer;
+      font-weight:700; text-transform:uppercase; letter-spacing:.08em; font-size:12px;
+    }
+    .btn.red{ border-color: var(--red); color: var(--red); }
+    .btn.black{ border-color:#000; color:#000; }
+
+    .loadmore{
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      display:flex;
+      justify-content:center;
+    }
   </style>
 </head>
 
@@ -199,6 +113,11 @@ HTML = """
     <div class="searchbar">
       <input id="q" placeholder="Search (Devanagari or Roman Hindi)..." />
       <button id="submitBtn" onclick="doSearch()">Submit</button>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn black" onclick="markNone()">Nothing relevant</button>
+      <div class="hint">Labels are saved immediately. Use “Wrong” even if result is close-but-not-right.</div>
     </div>
 
     <div class="controls">
@@ -216,9 +135,8 @@ HTML = """
 
     <div id="results"></div>
 
-    <div class="footer-actions">
-      <button class="btn black" onclick="markNone()">Nothing relevant</button>
-      <div class="hint">Labels are saved immediately. Use “Wrong” even if result is close-but-not-right.</div>
+    <div class="loadmore" id="loadmore" style="display:none;">
+      <button class="btn black" onclick="showMore()">Show more</button>
     </div>
   </div>
 
@@ -226,10 +144,11 @@ HTML = """
     let lastQueryId = null;
     let lastMode = null;
     let lastQueryUsed = null;
-    let lastQuerySemantic = null;
 
-    let lastResults = [];     // raw from API
+    let lastResults = [];
     let currentSort = "relevance";
+
+    let visibleCount = 10;
 
     function setActiveSortUI(){
       document.getElementById("sortRel").classList.toggle("active", currentSort==="relevance");
@@ -241,6 +160,16 @@ HTML = """
       if(!s) return null;
       const t = Date.parse(s);
       return Number.isFinite(t) ? t : null;
+    }
+
+    function formatDateDDMMYYYY(s){
+      const t = parseDateSafe(s);
+      if(t === null) return s || "";
+      const d = new Date(t);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth()+1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      return `${dd}-${mm}-${yyyy}`;
     }
 
     function sortedResults(){
@@ -264,13 +193,24 @@ HTML = """
       renderResults();
     }
 
+    function updateLoadMore(total){
+      const lm = document.getElementById("loadmore");
+      lm.style.display = (total > visibleCount) ? "flex" : "none";
+    }
+
+    function showMore(){
+      visibleCount = Math.min(visibleCount + 10, lastResults.length);
+      renderResults();
+    }
+
     function renderResults(){
       const root = document.getElementById("results");
       root.innerHTML = "";
 
       const results = sortedResults();
+      const shown = results.slice(0, visibleCount);
 
-      results.forEach((hit, idx) => {
+      shown.forEach((hit) => {
         const card = document.createElement("div");
         card.className = "result";
 
@@ -283,11 +223,15 @@ HTML = """
 
         const date = document.createElement("div");
         date.className = "date";
-        date.textContent = hit.date || "";
+        date.textContent = formatDateDDMMYYYY(hit.date);
 
         const title = document.createElement("div");
         title.className = "title";
-        title.textContent = hit.title || "";
+        const safeTitle = hit.title || "";
+        const safeUrl = hit.url || "";
+        title.innerHTML = safeUrl
+          ? `<a href="${safeUrl}" target="_blank" rel="noreferrer">${escapeHtml(safeTitle)}</a>`
+          : `${escapeHtml(safeTitle)}`;
 
         const summary = document.createElement("div");
         summary.className = "summary";
@@ -296,11 +240,9 @@ HTML = """
         const meta = document.createElement("div");
         meta.className = "meta";
         meta.innerHTML = `
-          <span class="pill">ID: ${hit.id}</span>
-          ${hit.url ? `<a href="${hit.url}" target="_blank" rel="noreferrer">Open</a>` : ``}
-          ${hit.partner_label ? `<span class="pill">Partner: ${hit.partner_label}</span>` : ``}
-          ${(hit.location || []).slice(0,3).map(x=>`<span class="pill">Loc: ${x}</span>`).join("")}
-          ${(hit.tags || []).slice(0,3).map(x=>`<span class="pill">Tag: ${x}</span>`).join("")}
+          ${hit.partner_label ? `<span class="pill">Partner: ${escapeHtml(hit.partner_label)}</span>` : ``}
+          ${(hit.location || []).slice(0,3).map(x=>`<span class="pill">Loc: ${escapeHtml(x)}</span>`).join("")}
+          ${(hit.tags || []).slice(0,3).map(x=>`<span class="pill">Tag: ${escapeHtml(x)}</span>`).join("")}
         `;
 
         const note = document.createElement("textarea");
@@ -333,6 +275,17 @@ HTML = """
         card.appendChild(left);
         root.appendChild(card);
       });
+
+      updateLoadMore(results.length);
+    }
+
+    function escapeHtml(s){
+      return String(s||"")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
     }
 
     async function doSearch() {
@@ -349,12 +302,12 @@ HTML = """
       lastQueryId = data.query_id;
       lastMode = data.mode;
       lastQueryUsed = data.query_used;
-      lastQuerySemantic = data.query_semantic;
 
       document.getElementById("qid").innerText =
         `query_id: ${lastQueryId} | mode: ${lastMode} | query_used: ${lastQueryUsed}`;
 
       lastResults = data.results || [];
+      visibleCount = 10;
       currentSort = "relevance";
       setActiveSortUI();
       renderResults();
