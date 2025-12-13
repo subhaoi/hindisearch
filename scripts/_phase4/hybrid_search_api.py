@@ -13,7 +13,7 @@ import typesense
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
+from utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
 from .ranker_v1 import ranker_v1
 from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
 
@@ -331,16 +331,16 @@ def search(req: SearchRequest) -> SearchResponse:
         filters={"filter_by": req.filter_by} if req.filter_by else None,
         ranker_version=RANKER_VERSION,
         retrieval_version=RETRIEVAL_VERSION,
-        meta=meta={
-                    "lex_n": len(lex),
-                    "sem_article_n": len(sem_a),
-                    "sem_chunk_n": len(sem_c),
-                    "cand_n": len(candidates),
-                    "entity_matches": entity.get("matches", {}),
-                    "entity_confidence": entity.get("confidence", {}),
-                    "filter_by_auto": entity.get("filter_by_auto"),
-                    "filter_by_final": filter_final,
-                    }
+        meta={
+            "lex_n": len(lex),
+            "sem_article_n": len(sem_a),
+            "sem_chunk_n": len(sem_c),
+            "cand_n": len(candidates),
+            "entity_matches": entity.get("matches", {}),
+            "entity_confidence": entity.get("confidence", {}),
+            "filter_by_auto": entity.get("filter_by_auto"),
+            "filter_by_final": filter_final,
+            }
         )
 
     # Log top-N ranked candidates (training-grade)

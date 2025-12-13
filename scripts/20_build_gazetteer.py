@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from scripts.utils import Paths, ensure_dir, read_parquet, write_json, is_nullish
+from utils import Paths, ensure_dir, read_parquet, write_json, is_nullish
 
 
 def roman_norm(s: str) -> str:
