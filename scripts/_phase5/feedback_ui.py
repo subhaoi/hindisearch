@@ -16,7 +16,7 @@ HTML = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IDR Search Feedback</title>
+  <title>IDR Search and Feedback</title>
   <style>
     :root{
       --red:#d93b3b;
@@ -111,13 +111,15 @@ HTML = """
 <body>
   <div class="wrap">
     <div class="searchbar">
-      <input id="q" placeholder="Search (Devanagari or Roman Hindi)..." />
+      <input id="q" placeholder="Search (Devanagari or Hindi written in English alphabets)..." />
       <button id="submitBtn" onclick="doSearch()">Submit</button>
     </div>
 
     <div class="top-actions">
-      <button class="btn black" onclick="markNone()">Nothing relevant</button>
-      <div class="hint">Labels are saved immediately. Use “Wrong” even if result is close-but-not-right.</div>
+      <button class="btn black" onclick="markNone()">कोई भी रिजल्ट सही नहीं है</button>
+      <br>
+      <div class="hint">apka feedback directly save ho jayega. Niche feedback buttons hai</div>
+      <div class="hint"> Use “Wrong” even if result is close-but-not-right.</div>
     </div>
 
     <div class="controls">
