@@ -105,6 +105,22 @@ HTML = """
       display:flex;
       justify-content:center;
     }
+
+    .statusline{ font-size:12px; color: var(--muted); margin-top: 8px; }
+    .statusline.ok{ color: #0a7a3b; }
+    .statusline.bad{ color: var(--red); }
+    .btn[disabled]{ opacity:.55; cursor:not-allowed; }
+    .banner{
+      display:none;
+      margin: 10px 0 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      background: #f7f7f7;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .banner.ok{ border-color:#0a7a3b; color:#0a7a3b; }
+    .banner.bad{ border-color:var(--red); color:var(--red); }
   </style>
 </head>
 
@@ -121,7 +137,7 @@ HTML = """
       <div class="hint">apka feedback directly save ho jayega. Niche feedback buttons hai</div>
       <div class="hint"> Use “Wrong” even if result is close-but-not-right.</div>
     </div>
-
+    <div id="topBanner" class="banner"></div>
     <div class="controls">
       <div class="label">SORT BY</div>
       <div class="opts">
@@ -206,81 +222,92 @@ HTML = """
     }
 
     function renderResults(){
-      const root = document.getElementById("results");
-      root.innerHTML = "";
+    const root = document.getElementById("results");
+    root.innerHTML = "";
 
-      const results = sortedResults();
-      const shown = results.slice(0, visibleCount);
+    const results = sortedResults();
+    const shown = results.slice(0, visibleCount);
 
-      shown.forEach((hit) => {
-        const card = document.createElement("div");
-        card.className = "result";
+    shown.forEach((hit) => {
+      const card = document.createElement("div");
+      card.className = "result";
 
-        const left = document.createElement("div");
-        left.className = "left";
+      const left = document.createElement("div");
+      left.className = "left";
 
-        const kicker = document.createElement("div");
-        kicker.className = "kicker";
-        kicker.textContent = (hit.primary_category || "").toUpperCase();
+      const kicker = document.createElement("div");
+      kicker.className = "kicker";
+      kicker.textContent = (hit.primary_category || "").toUpperCase();
 
-        const date = document.createElement("div");
-        date.className = "date";
-        date.textContent = formatDateDDMMYYYY(hit.date);
+      const date = document.createElement("div");
+      date.className = "date";
+      date.textContent = formatDateDDMMYYYY(hit.date);
 
-        const title = document.createElement("div");
-        title.className = "title";
-        const safeTitle = hit.title || "";
-        const safeUrl = hit.url || "";
-        title.innerHTML = safeUrl
-          ? `<a href="${safeUrl}" target="_blank" rel="noreferrer">${escapeHtml(safeTitle)}</a>`
-          : `${escapeHtml(safeTitle)}`;
+      const title = document.createElement("div");
+      title.className = "title";
+      const safeTitle = hit.title || "";
+      const safeUrl = hit.url || "";
+      title.innerHTML = safeUrl
+        ? `<a href="${safeUrl}" target="_blank" rel="noreferrer">${escapeHtml(safeTitle)}</a>`
+        : `${escapeHtml(safeTitle)}`;
 
-        const summary = document.createElement("div");
-        summary.className = "summary";
-        summary.textContent = hit.summary || "";
+      const summary = document.createElement("div");
+      summary.className = "summary";
+      summary.textContent = hit.summary || "";
 
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.innerHTML = `
-          ${hit.partner_label ? `<span class="pill">Partner: ${escapeHtml(hit.partner_label)}</span>` : ``}
-          ${(hit.location || []).slice(0,3).map(x=>`<span class="pill">Loc: ${escapeHtml(x)}</span>`).join("")}
-          ${(hit.tags || []).slice(0,3).map(x=>`<span class="pill">Tag: ${escapeHtml(x)}</span>`).join("")}
-        `;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `
+        ${hit.partner_label ? `<span class="pill">Partner: ${escapeHtml(hit.partner_label)}</span>` : ``}
+        ${(hit.location || []).slice(0,3).map(x=>`<span class="pill">Loc: ${escapeHtml(x)}</span>`).join("")}
+        ${(hit.tags || []).slice(0,3).map(x=>`<span class="pill">Tag: ${escapeHtml(x)}</span>`).join("")}
+      `;
 
-        const note = document.createElement("textarea");
-        note.placeholder = "Optional note (why relevant / irrelevant)…";
+      const note = document.createElement("textarea");
+      note.placeholder = "Optional note (why relevant / irrelevant)…";
 
-        const actions = document.createElement("div");
-        actions.className = "actions";
+      const actions = document.createElement("div");
+      actions.className = "actions";
 
-        const okBtn = document.createElement("button");
-        okBtn.className = "btn black";
-        okBtn.textContent = "Correct";
-        okBtn.onclick = () => labelItem(hit.id, 1, note.value);
+      const okBtn = document.createElement("button");
+      okBtn.className = "btn black";
+      okBtn.textContent = "Correct";
 
-        const badBtn = document.createElement("button");
-        badBtn.className = "btn red";
-        badBtn.textContent = "Wrong";
-        badBtn.onclick = () => labelItem(hit.id, 0, note.value);
+      const badBtn = document.createElement("button");
+      badBtn.className = "btn red";
+      badBtn.textContent = "Wrong";
 
-        actions.appendChild(okBtn);
-        actions.appendChild(badBtn);
+      const status = document.createElement("div");
+      status.className = "statusline";
+      status.textContent = "";
 
-        if(kicker.textContent) left.appendChild(kicker);
-        left.appendChild(date);
-        left.appendChild(title);
-        left.appendChild(summary);
-        left.appendChild(meta);
-        left.appendChild(note);
-        left.appendChild(actions);
+      okBtn.onclick = async () => {
+        await labelAndUpdateUI({ hit, label: 1, noteEl: note, okBtn, badBtn, statusEl: status });
+      };
+      badBtn.onclick = async () => {
+        await labelAndUpdateUI({ hit, label: 0, noteEl: note, okBtn, badBtn, statusEl: status });
+      };
 
-        card.appendChild(left);
-        root.appendChild(card);
-      });
+      actions.appendChild(okBtn);
+      actions.appendChild(badBtn);
 
-      updateLoadMore(results.length);
-    }
+      if(kicker.textContent) left.appendChild(kicker);
+      left.appendChild(date);
+      left.appendChild(title);
+      left.appendChild(summary);
+      left.appendChild(meta);
+      left.appendChild(note);
+      left.appendChild(actions);
+      left.appendChild(status);
 
+      card.appendChild(left);
+      root.appendChild(card);
+    });
+
+    updateLoadMore(results.length);
+  }
+
+    
     function escapeHtml(s){
       return String(s||"")
         .replaceAll("&","&amp;")
@@ -328,16 +355,80 @@ HTML = """
         })
       });
     }
+    async function labelAndUpdateUI({ hit, label, noteEl, okBtn, badBtn, statusEl }) {
+      if (!lastQueryId) return;
+
+      // optimistic UI
+      okBtn.disabled = true;
+      badBtn.disabled = true;
+      statusEl.className = "statusline";
+      statusEl.textContent = "Saving…";
+
+      try {
+        const res = await fetch("/proxy_label", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            query_id: lastQueryId,
+            article_id: hit.id,
+            label: label,
+            note: (noteEl.value || null)
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error("label failed");
+        }
+
+        statusEl.className = "statusline " + (label === 1 ? "ok" : "bad");
+        statusEl.textContent = label === 1 ? "Saved: Correct" : "Saved: Wrong";
+        noteEl.disabled = true;
+      } catch (e) {
+        // rollback UI
+        okBtn.disabled = false;
+        badBtn.disabled = false;
+        statusEl.className = "statusline bad";
+        statusEl.textContent = "Save failed. Try again.";
+      }
+    }
 
     async function markNone() {
       if (!lastQueryId) return;
+
       const note = prompt("Optional note (what did you expect?)") || null;
-      await fetch("/proxy_label_query", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ query_id: lastQueryId, label: 0, note })
-      });
+
+      try {
+        const res = await fetch("/proxy_label_query", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            query_id: lastQueryId,
+            label: 0,
+            note: note
+          })
+        });
+
+        if (!res.ok) throw new Error("save failed");
+
+        showBanner("Saved: No relevant results for this query", "ok");
+      } catch (e) {
+        showBanner("Save failed. Please try again.", "bad");
+      }
     }
+
+
+    function showBanner(msg, kind="ok"){
+      const b = document.getElementById("topBanner");
+      b.className = "banner " + kind;
+      b.textContent = msg;
+      b.style.display = "block";
+
+      // auto-hide after 3 seconds
+      setTimeout(() => {
+        b.style.display = "none";
+      }, 3000);
+    }
+
   </script>
 </body>
 </html>
