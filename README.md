@@ -194,7 +194,7 @@ Lightweight FastAPI frontend (`scripts/_phase5/feedback_ui.py`) that:
 Run it alongside the API (default `SEARCH_API_BASE=http://localhost:8000`):
 
 ```bash
-uvicorn scripts._phase5.feedback_ui:app --host 0.0.0.0 --port 8100
+uvicorn scripts._phase5.feedback_ui:app --host 0.0.0.0 --port 8500
 ```
 
 ---
