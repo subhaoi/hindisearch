@@ -66,8 +66,33 @@ HTML = """
 
     .qid{ margin: 10px 0 14px; font-size: 12px; color: var(--muted); }
 
-    .result{ display:flex; gap: 22px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .result{ display:flex; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); align-items:flex-start; }
     .result:first-child{ border-top: 0; }
+    .thumb-wrap{
+      width:160px;
+      flex:0 0 160px;
+      border-radius: 8px;
+      overflow:hidden;
+      background:#f4f4f4;
+      border:1px solid var(--line);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .thumb-wrap img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .thumb-placeholder{
+      font-size:11px;
+      letter-spacing:.1em;
+      color:var(--muted);
+      text-transform:uppercase;
+      padding:12px;
+      text-align:center;
+    }
     .left{ flex: 1; min-width: 0; }
 
     .kicker{ font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
@@ -232,6 +257,21 @@ HTML = """
       const card = document.createElement("div");
       card.className = "result";
 
+      const thumb = document.createElement("div");
+      thumb.className = "thumb-wrap";
+      if(hit.image_url){
+        const img = document.createElement("img");
+        img.src = hit.image_url;
+        img.alt = hit.title || "thumbnail";
+        img.loading = "lazy";
+        thumb.appendChild(img);
+      }else{
+        const ph = document.createElement("div");
+        ph.className = "thumb-placeholder";
+        ph.textContent = "No Image";
+        thumb.appendChild(ph);
+      }
+
       const left = document.createElement("div");
       left.className = "left";
 
@@ -300,6 +340,7 @@ HTML = """
       left.appendChild(actions);
       left.appendChild(status);
 
+      card.appendChild(thumb);
       card.appendChild(left);
       root.appendChild(card);
     });
