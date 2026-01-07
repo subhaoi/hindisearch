@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 import time
 import json
@@ -43,6 +44,8 @@ QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 QCOL_ART = os.environ.get("QDRANT_COLLECTION_ARTICLES", "idr_articles_vec_v1")
 QCOL_CHK = os.environ.get("QDRANT_COLLECTION_CHUNKS", "idr_chunks_vec_v1")
 
+RAW_ARTICLES_CSV = os.environ.get("RAW_ARTICLES_CSV", "data/raw/articles.csv")
+
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 
@@ -76,6 +79,43 @@ def tokenize_query(q: str) -> List[str]:
 root = Path(".").resolve()
 paths = Paths(root=root)
 
+def resolve_project_path(p: str) -> Path:
+    path = Path(p)
+    if path.is_absolute():
+        return path
+    return (paths.root / path).resolve()
+
+
+def load_featured_images(csv_path: Path) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    if not csv_path.exists():
+        return mapping
+
+    column_aliases = {"image_featured", "featured_image", "image_url"}
+    with csv_path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return mapping
+        target_col = None
+        for col in reader.fieldnames:
+            if not col:
+                continue
+            norm = re.sub(r"[\s\-]+", "_", col.strip().lower())
+            if norm in column_aliases:
+                target_col = col
+                break
+        if not target_col:
+            return mapping
+
+        for row in reader:
+            aid = str(row.get("ID") or row.get("id") or "").strip()
+            url = row.get(target_col)
+            if not aid or not url:
+                continue
+            mapping[aid] = str(url).strip()
+    return mapping
+
+
 GAZ_PATH = paths.data / "phase_45" / "gazetteer_v1.json"
 if not GAZ_PATH.exists():
     raise RuntimeError(f"Missing {GAZ_PATH}. Run: python scripts/20_build_gazetteer.py")
@@ -90,6 +130,9 @@ if not ARTICLES_PATH.exists():
     raise RuntimeError(f"Missing {ARTICLES_PATH}")
 if not CHUNKS_PATH.exists():
     raise RuntimeError(f"Missing {CHUNKS_PATH}")
+
+RAW_ARTICLES_PATH = resolve_project_path(RAW_ARTICLES_CSV)
+featured_images = load_featured_images(RAW_ARTICLES_PATH)
 
 articles_df = read_parquet(ARTICLES_PATH)
 
@@ -130,6 +173,7 @@ for _, r in articles_df.iterrows():
         "published_ts": int(r.get("published_ts"))
         if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts"))
         else 0,
+        "image_url": featured_images.get(aid),
         # display fields
         "primary_category": primary_category,
         "categories": cats,
@@ -171,6 +215,7 @@ class SearchHit(BaseModel):
     date: Optional[str] = None
     summary: Optional[str] = None
     url: Optional[str] = None
+    image_url: Optional[str] = None
 
     primary_category: Optional[str] = None
     categories: List[str] = []
@@ -288,6 +333,7 @@ def build_candidates(
                 "summary": m.get("summary"),
                 "published_date": m.get("published_date"),
                 "published_ts": int(m.get("published_ts") or 0),
+                "image_url": m.get("image_url"),
                 "primary_category": m.get("primary_category"),
                 "categories": m.get("categories") if isinstance(m.get("categories"), list) else [],
                 "tags": m.get("tags") if isinstance(m.get("tags"), list) else [],
@@ -365,6 +411,7 @@ def search(req: SearchRequest) -> SearchResponse:
                 date=item.get("published_date"),
                 summary=item.get("summary"),
                 url=item.get("url"),
+                image_url=item.get("image_url"),
                 primary_category=item.get("primary_category"),
                 categories=item.get("categories") or [],
                 tags=item.get("tags") or [],
