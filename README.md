@@ -15,6 +15,7 @@ Everything runs from this repo; no hidden notebooks or cloud jobs.
 
 ```
 data/             # raw inputs, intermediate stages, final artifacts
+  └─ raw/         # WordPress exports + combined articles.csv (with Image Featured column)
 logs/             # JSON reports from each phase
 scripts/          # numbered pipeline + CLI utilities
 scripts/_phase4   # hybrid API, ranker, DB helpers
@@ -25,6 +26,7 @@ requirements.txt
 
 Key outputs:
 
+- `data/raw/articles.csv` — concatenation of the three WordPress exports (run `scripts/00_concat_raw_exports.py` whenever the source CSVs change; includes `Image Featured` URLs).
 - `data/final/articles_canonical.parquet` — canonical dataset from Phase 1.
 - `data/phase_2/typesense_schema.json` — created collection schema.
 - `data/phase_3/chunks.parquet`, `chunk_vectors.parquet`, `article_vectors.parquet`.
@@ -54,6 +56,7 @@ pip install -r requirements.txt
 ```
 cp .env.example .env
 # edit .env with Typesense, Qdrant, Postgres credentials + API knobs
+# RAW_ARTICLES_CSV can override the path used to fetch Image Featured URLs
 ```
 
 ---
@@ -61,6 +64,15 @@ cp .env.example .env
 ## Phase 1 — Canonicalize WordPress export
 
 1. Drop the CSV at `data/raw/articles.csv`.
+   - If you maintain separate export files (Articles, Features, Ground-Up Stories), regenerate `articles.csv` with:
+     ```bash
+     python scripts/00_concat_raw_exports.py \
+       --inputs data/raw/Articles-Export-2024-January-25-0205.csv \
+                data/raw/Features-Export-2024-January-25-0214.csv \
+                data/raw/Ground-Up-Stories-Export-2024-January-25-0217.csv \
+       --output data/raw/articles.csv
+     ```
+     (Defaults already point to these filenames, so `python scripts/00_concat_raw_exports.py` also works.)
 2. Run the orchestrator (it skips stages whose outputs already exist):
 
 ```bash
@@ -159,6 +171,7 @@ Artifacts used:
 - Gazetteer (`python scripts/20_build_gazetteer.py`)
 - Core QA query set (`python scripts/19_build_core_query_set.py`)
 - Vector stores + Typesense index + Postgres
+- Raw CSV (`data/raw/articles.csv`) for `Image Featured` links (override via `RAW_ARTICLES_CSV`)
 
 Start the API (uvicorn example):
 
@@ -166,14 +179,83 @@ Start the API (uvicorn example):
 uvicorn scripts._phase4.hybrid_search_api:app --host 0.0.0.0 --port 8000
 ```
 
-Endpoints:
+### API endpoints
 
-- `GET /health` — sanity check.
-- `POST /search` — body `{ "query": "...", "per_page": 10, "filter_by": "locations_norm:=[...]", "explain": false }`
-  - Returns query metadata, results, optional explanations/snippets.
-  - Logs query + ranked candidates to Postgres via `scripts/_phase4/db.py`.
-- `POST /label` — `{ "query_id": <id>, "article_id": "<id>", "label": 1|0, "note": "..." }`.
-- `POST /label_query` — query-level negative feedback.
+#### `GET /health`
+```json
+{
+  "ok": true,
+  "ranker_version": "ranker_v1",
+  "retrieval_version": "retrieval_v1"
+}
+```
+
+#### `POST /search`
+Request:
+```json
+{
+  "query": "महिला सशक्तिकरण",
+  "per_page": 10,
+  "filter_by": "locations_norm:=[bihar]",
+  "explain": true
+}
+```
+Response:
+```json
+{
+  "query_id": 123,
+  "mode": "dev",
+  "query_used": "महिला सशक्तिकरण",
+  "query_semantic": "महिला सशक्तिकरण",
+  "results": [
+    {
+      "rank": 1,
+      "id": "14521",
+      "title": "महिला नेतृत्व कार्यक्रम",
+      "date": "2023-09-12T05:30:00",
+      "summary": "…",
+      "url": "https://example.com/article",
+      "image_url": "https://example.com/uploads/featured.jpg",
+      "primary_category": "Gender",
+      "categories": ["Gender"],
+      "tags": ["training"],
+      "location": ["bihar"],
+      "partner_label": null,
+      "contributors": ["IDR Staff"],
+      "score": 0.92,
+      "snippet": "…",
+      "features": { "...": "..." },
+      "explanation": [["lex", 0.5], ["sem_chunk", 0.3]]
+    }
+  ]
+}
+```
+Notes:
+- `mode` is `dev` (Devanagari) or `roman`.
+- `image_url` comes from the `Image Featured` column in the raw CSV.
+- Setting `explain=true` includes `features` and `explanation` arrays; omit to reduce payload size.
+
+#### `POST /label`
+```json
+{
+  "query_id": 123,
+  "article_id": "14521",
+  "label": 1,
+  "note": "Perfect match"
+}
+```
+
+#### `POST /label_query`
+Used when *no* result is relevant:
+```json
+{
+  "query_id": 123,
+  "label": 0,
+  "note": "Query misunderstood"
+}
+```
+
+All writes land in Postgres via `scripts/_phase4/db.py`.
 
 CLI client:
 
@@ -188,7 +270,7 @@ python scripts/18_hybrid_search_cli.py --q "महिला yojana" --k 15 --hos
 Lightweight FastAPI frontend (`scripts/_phase5/feedback_ui.py`) that:
 
 - Calls the hybrid API.
-- Allows annotators to sort (relevance/newest/oldest) and mark “Correct/Wrong/None”.
+- Shows featured thumbnails when available, lets annotators sort (relevance/newest/oldest), and mark “Correct/Wrong/None”.
 - Posts labels through `/label` and `/label_query`.
 
 Run it alongside the API (default `SEARCH_API_BASE=http://localhost:8000`):
@@ -203,6 +285,7 @@ uvicorn scripts._phase5.feedback_ui:app --host 0.0.0.0 --port 8500
 
 - Logs (`logs/*.json`) are designed for quick sanity checks—skim them after each phase.
 - `data/` is structured by stage; keep raw inputs immutable and rerun scripts when new CSVs arrive.
+- Whenever you receive updated WordPress exports, run `python scripts/00_concat_raw_exports.py` before `scripts/run_all.py` so the new `Image Featured` URLs propagate all the way to the API/UI.
 - The repo uses `scripts/utils.py` for reusable helpers. New scripts should import from there for consistent normalization/tokenization.
 - Qdrant + Typesense data persists in `data/phase_2/typesense_data` and `data/phase_3/qdrant_storage`. Remove those directories if you need a clean rebuild.
 - Postgres logs queries/candidates/labels. Update `DATABASE_URL` if you hook up a managed DB.
