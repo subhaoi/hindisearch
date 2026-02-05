@@ -10,11 +10,18 @@ def main() -> None:
     ap.add_argument("--q", required=True)
     ap.add_argument("--host", default="http://localhost:8000")
     ap.add_argument("--k", type=int, default=10)
+    ap.add_argument("--page", type=int, default=1)
     ap.add_argument("--explain", action="store_true")
     ap.add_argument("--filter", default=None)
     args = ap.parse_args()
 
-    payload = {"query": args.q, "per_page": args.k, "explain": bool(args.explain), "filter_by": args.filter}
+    payload = {
+        "query": args.q,
+        "per_page": args.k,
+        "page": args.page,
+        "explain": bool(args.explain),
+        "filter_by": args.filter,
+    }
     r = requests.post(args.host.rstrip("/") + "/search", json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()

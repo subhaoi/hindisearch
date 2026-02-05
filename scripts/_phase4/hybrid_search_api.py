@@ -205,6 +205,7 @@ class SearchRequest(BaseModel):
     query: str
     filter_by: Optional[str] = None
     per_page: int = 10
+    page: int = 1
     explain: bool = False
 
 
@@ -236,6 +237,10 @@ class SearchResponse(BaseModel):
     mode: str
     query_used: str
     query_semantic: str
+    total_results: int
+    total_pages: int
+    page: int
+    per_page: int
     results: List[SearchHit]
 
 
@@ -401,8 +406,19 @@ def search(req: SearchRequest) -> SearchResponse:
     now_ts = int(time.time())
     ranked = ranker_v1(candidates, q_tokens, now_ts=now_ts)
 
+    per_page = max(1, int(req.per_page))
+    page = max(1, int(req.page))
+    max_results = 40
+    total_results = min(len(ranked), max_results)
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * per_page
+    end = min(start + per_page, total_results)
+
     hits: List[SearchHit] = []
-    for item in ranked[: max(1, req.per_page)]:
+    for item in ranked[start:end]:
         hits.append(
             SearchHit(
                 rank=item["rank"],
@@ -475,6 +491,10 @@ def search(req: SearchRequest) -> SearchResponse:
         mode=mode,
         query_used=query_used,
         query_semantic=query_semantic,
+        total_results=total_results,
+        total_pages=total_pages,
+        page=page,
+        per_page=per_page,
         results=hits,
     )
 
