@@ -408,8 +408,7 @@ def search(req: SearchRequest) -> SearchResponse:
 
     per_page = max(1, int(req.per_page))
     page = max(1, int(req.page))
-    max_results = 40
-    total_results = min(len(ranked), max_results)
+    total_results = len(ranked)
     total_pages = max(1, (total_results + per_page - 1) // per_page)
     if page > total_pages:
         page = total_pages
