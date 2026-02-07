@@ -73,7 +73,13 @@ def token_window_split(tokenizer, text: str, hard_max_tokens: int, overlap_token
         window = ids[i : i + hard_max_tokens]
         txt = tokenizer.decode(window).strip()
         if txt:
-            out.append(txt)
+            # Re-encode to ensure we don't exceed hard_max_tokens due to decode/encode drift.
+            re_ids = tokenizer.encode(txt, add_special_tokens=False)
+            if len(re_ids) > hard_max_tokens:
+                re_ids = re_ids[:hard_max_tokens]
+                txt = tokenizer.decode(re_ids).strip()
+            if txt:
+                out.append(txt)
         i += step
     return out
 
@@ -144,6 +150,7 @@ def chunk_paragraphs(
         if ctoks <= hard_max_tokens:
             capped.append(c)
         else:
+            # Force truncate via token window split, then re-check.
             capped.extend(token_window_split(tokenizer, c, hard_max_tokens, overlap_tokens))
 
     return [c for c in capped if c.strip()]
