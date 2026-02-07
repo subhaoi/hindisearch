@@ -57,6 +57,9 @@ def main() -> None:
             {"name": "summary_roman_norm", "type": "string", "optional": True},
             {"name": "content_roman_norm", "type": "string", "optional": True},
 
+            # Mixed-script helper field
+            {"name": "content_mixed_norm", "type": "string", "optional": True},
+
             # Facets / filters
             {"name": "categories_norm", "type": "string[]", "facet": True, "optional": True},
             {"name": "tags_norm", "type": "string[]", "facet": True, "optional": True},

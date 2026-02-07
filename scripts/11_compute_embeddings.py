@@ -10,7 +10,17 @@ from tqdm import tqdm
 
 from sentence_transformers import SentenceTransformer
 
-from utils import Paths, ensure_dir, read_parquet, write_parquet, write_json, is_nullish, safe_join, build_tokenizer_for_mpnet
+from utils import (
+    Paths,
+    ensure_dir,
+    read_parquet,
+    write_parquet,
+    write_json,
+    is_nullish,
+    safe_join,
+    build_tokenizer_for_mpnet,
+    e5_prefix_text,
+)
 
 
 def truncate_to_max_tokens(tokenizer, text: str, hard_max_tokens: int) -> Tuple[str, bool, int]:
@@ -41,11 +51,11 @@ def main() -> None:
     ap.add_argument("--articles", default="data/final/articles_canonical.parquet", help="Canonical articles parquet")
     ap.add_argument("--chunks", default="data/phase_3/chunks.parquet", help="Chunks parquet")
     ap.add_argument("--batch-size", type=int, default=32)
-    ap.add_argument("--hard-max-tokens", type=int, default=480, help="Hard cap for MPNet (<=512)")
+    ap.add_argument("--hard-max-tokens", type=int, default=384, help="Hard cap for E5 (<=512)")
     args = ap.parse_args()
 
     if args.hard_max_tokens > 512:
-        raise ValueError("hard-max-tokens must be <= 512 for paraphrase-multilingual-mpnet-base-v2")
+        raise ValueError("hard-max-tokens must be <= 512 for intfloat/multilingual-e5-large")
 
     root = Path(args.root).resolve()
     paths = Paths(root=root)
@@ -56,7 +66,7 @@ def main() -> None:
     articles = read_parquet(Path(args.articles).resolve())
     chunks = read_parquet(Path(args.chunks).resolve())
 
-    model_name = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    model_name = "intfloat/multilingual-e5-large"
     model = SentenceTransformer(model_name)
     tokenizer = build_tokenizer_for_mpnet()
 
@@ -86,6 +96,7 @@ def main() -> None:
             txt = title.strip()
 
         txt2, was_trunc, tok_ct = truncate_to_max_tokens(tokenizer, txt, args.hard_max_tokens)
+        txt2 = e5_prefix_text(txt2, "passage")
         if was_trunc:
             report["article_truncated"] += 1
             if len(report["examples"]) < 10:
@@ -118,6 +129,7 @@ def main() -> None:
 
     for cid, txt in zip(chunk_ids, raw_chunk_texts):
         txt2, was_trunc, tok_ct = truncate_to_max_tokens(tokenizer, txt, args.hard_max_tokens)
+        txt2 = e5_prefix_text(txt2, "passage")
         if was_trunc:
             report["chunk_truncated"] += 1
             if len(report["examples"]) < 10:

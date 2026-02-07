@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from utils import Paths, canonicalize_query_for_search, read_parquet
+from utils import Paths, canonicalize_query_for_search, read_parquet, e5_prefix_text
 
 
 def get_qdrant() -> QdrantClient:
@@ -36,9 +36,9 @@ def main() -> None:
     canon = canonicalize_query_for_search(args.q)
     q_text = canon["q"]  # dev query or roman_norm query
 
-    model_name = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    model_name = "intfloat/multilingual-e5-large"
     model = SentenceTransformer(model_name)
-    q_vec = model.encode([q_text], normalize_embeddings=True)[0].tolist()
+    q_vec = model.encode([e5_prefix_text(q_text, "query")], normalize_embeddings=True)[0].tolist()
 
     client = get_qdrant()
     res = client.search(

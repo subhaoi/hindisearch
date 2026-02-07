@@ -283,6 +283,11 @@ def is_query_devanagari(q: str) -> bool:
     return ss["dev_pct"] > 0.02
 
 
+def is_query_mixed(q: str) -> bool:
+    ss = script_stats(q)
+    return ss["dev_pct"] > 0.02 and ss["latin_pct"] > 0.02
+
+
 def canonicalize_query_for_search(raw_query: str) -> dict:
     """
     For Phase 2 routing only:
@@ -290,6 +295,10 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
     - Else: use roman-normalized query.
     """
     raw = "" if is_nullish(raw_query) else str(raw_query)
+    if is_query_mixed(raw):
+        dev = normalize_devanagari_text(raw) or raw
+        roman_norm = roman_normalize_for_index(raw)
+        return {"raw": raw, "mode": "mixed", "q": dev, "roman_norm": roman_norm}
     if is_query_devanagari(raw):
         dev = normalize_devanagari_text(raw) or raw
         return {"raw": raw, "mode": "dev", "q": dev, "roman_norm": ""}
@@ -300,11 +309,20 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
 
 def build_tokenizer_for_mpnet():
     """
-    Tokenizer for paraphrase-multilingual-mpnet-base-v2.
+    Tokenizer for intfloat/multilingual-e5-large.
     Used only for approximate chunk sizing.
     """
     from transformers import AutoTokenizer
-    return AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+    return AutoTokenizer.from_pretrained("intfloat/multilingual-e5-large")
+
+
+def e5_prefix_text(text: str, kind: str) -> str:
+    """
+    Apply E5 recommended prefixes: "query: " or "passage: ".
+    """
+    t = "" if is_nullish(text) else str(text).strip()
+    prefix = "query: " if kind == "query" else "passage: "
+    return prefix + t
 
 
 def count_tokens(tokenizer, text: str) -> int:

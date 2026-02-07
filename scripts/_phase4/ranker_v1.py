@@ -45,6 +45,7 @@ def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts:
     W_LOC = 0.15
     W_CONTRIB = 0.06
     W_REC = 0.08
+    W_ENTITY = 0.10
 
     out: List[Dict[str, Any]] = []
     for i, c in enumerate(candidates):
@@ -65,6 +66,9 @@ def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts:
 
         rec = recency_score(int(c.get("published_ts", 0) or 0), now_ts)
 
+        ent_conf = c.get("entity_conf") or {}
+        ent_score = min(1.0, max(0.0, float(sum(ent_conf.values())) / 6.0))
+
         score_parts = {
             "lex": W_LEX * lex_n[i],
             "sem_chunk": W_SC * sc_n[i],
@@ -74,6 +78,7 @@ def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts:
             "loc_overlap": W_LOC * loc_feat,
             "contrib_overlap": W_CONTRIB * con_feat,
             "recency": W_REC * rec,
+            "entity_conf": W_ENTITY * ent_score,
         }
         score = sum(score_parts.values())
 
@@ -91,6 +96,8 @@ def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts:
             "loc_overlap_count": loc_ov,
             "contrib_overlap_count": con_ov,
             "recency": rec,
+            "entity_conf_score": ent_score,
+            "entity_conf_raw": ent_conf,
             "best_chunk_id": c.get("best_chunk_id"),
             "src_lexical": bool(c.get("src_lexical", False)),
             "src_sem_article": bool(c.get("src_sem_article", False)),

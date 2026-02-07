@@ -17,7 +17,7 @@ from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
 # IMPORTANT: script-mode imports (python scripts/..). Do NOT use scripts.utils or relative imports.
-from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish
+from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text
 from .ranker_v1 import ranker_v1
 from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
 from .query_entities import detect_entities
@@ -46,7 +46,7 @@ QCOL_CHK = os.environ.get("QDRANT_COLLECTION_CHUNKS", "idr_chunks_vec_v1")
 
 RAW_ARTICLES_CSV = os.environ.get("RAW_ARTICLES_CSV", "data/raw/articles.csv")
 
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+MODEL_NAME = "intfloat/multilingual-e5-large"
 
 
 def get_typesense_client() -> typesense.Client:
@@ -259,12 +259,20 @@ class QueryLabelRequest(BaseModel):
 
 def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
     # query_used is already canonicalized; mode determines which indexed fields to use
-    query_by = "title_hi,summary_hi,content_hi" if mode == "dev" else "title_roman_norm,summary_roman_norm,content_roman_norm"
+    if mode == "dev":
+        query_by = "title_hi,summary_hi,content_hi"
+        weights = "6,3,1"
+    elif mode == "mixed":
+        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm"
+        weights = "6,3,1,1"
+    else:
+        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm"
+        weights = "6,3,1"
 
     params: Dict[str, Any] = {
         "q": query_used,
         "query_by": query_by,
-        "query_by_weights": "6,3,1",
+        "query_by_weights": weights,
         "per_page": LEXICAL_TOPK,
         "page": 1,
         "num_typos": 1,
@@ -282,13 +290,13 @@ def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> Li
 
 
 def qdrant_search_articles(query_semantic: str) -> List[Tuple[str, float]]:
-    q_vec = model.encode([query_semantic], normalize_embeddings=True)[0].tolist()
+    q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
     res = qd.search(collection_name=QCOL_ART, query_vector=q_vec, limit=SEM_ARTICLE_TOPK, with_payload=False)
     return [(str(p.id), float(p.score)) for p in res]
 
 
 def qdrant_search_chunks(query_semantic: str) -> List[Tuple[str, str, float]]:
-    q_vec = model.encode([query_semantic], normalize_embeddings=True)[0].tolist()
+    q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
     res = qd.search(collection_name=QCOL_CHK, query_vector=q_vec, limit=SEM_CHUNK_TOPK, with_payload=True)
     out: List[Tuple[str, str, float]] = []
     for p in res:
@@ -305,6 +313,7 @@ def build_candidates(
     lex_hits: List[Dict[str, Any]],
     sem_art: List[Tuple[str, float]],
     sem_chk: List[Tuple[str, str, float]],
+    entity_conf: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, Any]]:
     cand: Dict[str, Dict[str, Any]] = {}
 
@@ -353,6 +362,7 @@ def build_candidates(
                 "sem_article": float(c.get("sem_article", 0.0)),
                 "sem_chunk": float(c.get("sem_chunk", 0.0)),
                 "best_chunk_id": c.get("best_chunk_id"),
+                "entity_conf": entity_conf or {},
             }
         )
 
@@ -400,7 +410,7 @@ def search(req: SearchRequest) -> SearchResponse:
     sem_a = qdrant_search_articles(query_semantic=query_semantic)
     sem_c = qdrant_search_chunks(query_semantic=query_semantic)
 
-    candidates = build_candidates(lex, sem_a, sem_c)
+    candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
 
     q_tokens = tokenize_query(query_used)
     now_ts = int(time.time())

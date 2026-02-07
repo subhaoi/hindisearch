@@ -12,6 +12,8 @@ from utils import (
     split_pipe_field, normalize_token_list, parse_date_to_iso, is_nullish
 )
 
+import unicodedata
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -30,12 +32,25 @@ def main() -> None:
         "empty_fields_counts": {},
     }
 
+    SYNONYMS = {
+        "training & facilitation": "training and facilitation",
+        "training and facilitation": "training and facilitation",
+        "t&f": "training and facilitation",
+    }
+
+    def clean_token(t: str) -> str:
+        t2 = str(t).strip().casefold()
+        t2 = unicodedata.normalize("NFKD", t2)
+        t2 = "".join(ch for ch in t2 if not unicodedata.combining(ch))
+        return SYNONYMS.get(t2, t2)
+
     def split_and_norm(col: str) -> None:
         raw_list = []
         norm_list = []
         empty_count = 0
         for v in df[col].tolist() if col in df.columns else [None] * len(df):
             items = split_pipe_field(v)
+            items = [clean_token(x) for x in items if not is_nullish(x)]
             if len(items) == 0:
                 empty_count += 1
             raw_list.append(items)

@@ -51,6 +51,16 @@ def split_long_text_sentenceish(text: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def build_context_chunk(title: str, summary: str, content: str) -> str:
+    head = safe_join([title, summary], sep="\n\n").strip()
+    if not head:
+        head = title.strip()
+    # First 2 paragraphs as context
+    paras = split_into_paragraphs(content)
+    lead = "\n\n".join(paras[:2]).strip()
+    return safe_join([head, lead], sep="\n\n").strip()
+
+
 def token_window_split(tokenizer, text: str, hard_max_tokens: int, overlap_tokens: int) -> List[str]:
     ids = tokenizer.encode(text, add_special_tokens=False)
     if len(ids) <= hard_max_tokens:
@@ -143,13 +153,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", default="data/final/articles_canonical.parquet", help="Canonical parquet path")
     ap.add_argument("--root", default=".", help="Project root")
-    ap.add_argument("--max-tokens", type=int, default=240, help="Soft target tokens per chunk")
+    ap.add_argument("--max-tokens", type=int, default=200, help="Soft target tokens per chunk")
     ap.add_argument("--overlap-tokens", type=int, default=40, help="Overlap for token-window splits")
-    ap.add_argument("--hard-max-tokens", type=int, default=480, help="Hard cap (must be <= 512 for MPNet)")
+    ap.add_argument("--hard-max-tokens", type=int, default=384, help="Hard cap (must be <= 512 for E5)")
     args = ap.parse_args()
 
     if args.hard_max_tokens > 512:
-        raise ValueError("hard-max-tokens must be <= 512 for paraphrase-multilingual-mpnet-base-v2")
+        raise ValueError("hard-max-tokens must be <= 512 for intfloat/multilingual-e5-large")
     if args.max_tokens > args.hard_max_tokens:
         raise ValueError("max-tokens must be <= hard-max-tokens")
 
@@ -194,6 +204,10 @@ def main() -> None:
             overlap_tokens=args.overlap_tokens,
             hard_max_tokens=args.hard_max_tokens,
         )
+
+        context = build_context_chunk(title, summary, content)
+        if context:
+            chunks = [context] + chunks
 
         for idx, ch in enumerate(chunks):
             tok_ct = count_tokens(tokenizer, ch)

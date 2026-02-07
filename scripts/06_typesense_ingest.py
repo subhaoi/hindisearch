@@ -82,6 +82,9 @@ def main() -> None:
             "summary_roman_norm": devanagari_to_roman_hk(summary_hi),
             "content_roman_norm": devanagari_to_roman_hk(content_hi),
 
+            # Mixed: original + romanized for mixed-script queries
+            "content_mixed_norm": f"{content_hi}\n\n{devanagari_to_roman_hk(content_hi)}".strip(),
+
             "categories_norm": safe_list(row.get("categories_norm")),
             "tags_norm": safe_list(row.get("tags_norm")),
             "locations_norm": safe_list(row.get("locations_norm")),

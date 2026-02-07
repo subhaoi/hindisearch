@@ -50,6 +50,9 @@ def main() -> None:
     if canon["mode"] == "dev":
         query_by = "title_hi,summary_hi,content_hi"
         weights = "6,3,1"
+    elif canon["mode"] == "mixed":
+        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm"
+        weights = "6,3,1,1"
     else:
         query_by = "title_roman_norm,summary_roman_norm,content_roman_norm"
         weights = "6,3,1"

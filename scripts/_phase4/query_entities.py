@@ -20,6 +20,15 @@ def roman_norm(s: str) -> str:
     return t
 
 
+def dev_to_roman(s: str) -> str:
+    try:
+        from indic_transliteration import sanscript
+        from indic_transliteration.sanscript import transliterate
+        return transliterate(str(s), sanscript.DEVANAGARI, sanscript.HK)
+    except Exception:
+        return str(s)
+
+
 def tokenize_loose(q: str) -> List[str]:
     q2 = _norm_ws(q)
     toks = re.split(r"[^\w\u0900-\u097F]+", q2, flags=re.UNICODE)
@@ -60,8 +69,9 @@ def detect_entities(
     q_used = _norm_ws(query_used)
     q_tokens = tokenize_loose(q_used)
 
-    # For roman mode, also use roman_norm for matching
+    # For roman/mixed mode, also use roman_norm for matching
     q_roman = roman_norm(q_used) if mode != "dev" else ""
+    q_roman_from_dev = roman_norm(dev_to_roman(q_used)) if mode == "dev" else ""
 
     matches: Dict[str, List[str]] = {}
     conf: Dict[str, int] = {}
@@ -92,7 +102,7 @@ def detect_entities(
                     score += 2
                 else:
                     vr = vals_r[i] if i < len(vals_r) else roman_norm(v_norm)
-                    if vr and vr in q_roman:
+                    if vr and (vr in q_roman or vr in q_roman_from_dev):
                         got.append(v)
                         score += 2
 
@@ -103,6 +113,20 @@ def detect_entities(
                 if len(got) >= max_per_field:
                     break
                 vtok = set(tokenize_loose(v))
+                if not vtok:
+                    continue
+                if len(qtok.intersection(vtok)) > 0:
+                    if v not in got:
+                        got.append(v)
+                        score += 1
+
+        # If dev query, try romanized tokens too
+        if allow_token and mode == "dev" and len(got) < max_per_field:
+            qtok = set(tokenize_loose(q_roman_from_dev))
+            for v in vals:
+                if len(got) >= max_per_field:
+                    break
+                vtok = set(tokenize_loose(roman_norm(v)))
                 if not vtok:
                     continue
                 if len(qtok.intersection(vtok)) > 0:
