@@ -214,10 +214,17 @@ def main() -> None:
 
         context = build_context_chunk(title, summary, content)
         if context:
-            chunks = [context] + chunks
+            ctx_chunks = token_window_split(tokenizer, context, args.hard_max_tokens, args.overlap_tokens)
+            if ctx_chunks:
+                chunks = [ctx_chunks[0]] + chunks
 
         for idx, ch in enumerate(chunks):
             tok_ct = count_tokens(tokenizer, ch)
+            if tok_ct > args.hard_max_tokens:
+                # Final safety truncate in case of decode/encode drift.
+                ids = tokenizer.encode(ch, add_special_tokens=False)[: args.hard_max_tokens]
+                ch = tokenizer.decode(ids).strip()
+                tok_ct = count_tokens(tokenizer, ch)
             report["max_chunk_tokens_observed"] = max(report["max_chunk_tokens_observed"], tok_ct)
             if tok_ct > args.max_tokens:
                 report["hard_capped_chunks"] += 1
