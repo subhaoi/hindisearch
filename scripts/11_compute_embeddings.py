@@ -40,7 +40,7 @@ def embed_texts(model: SentenceTransformer, texts: List[str], batch_size: int) -
     return model.encode(
         texts,
         batch_size=batch_size,
-        show_progress_bar=False,
+        show_progress_bar=True,
         normalize_embeddings=True,
     )
 
@@ -106,6 +106,7 @@ def main() -> None:
         article_texts.append(txt2)
         article_trunc_flags.append(was_trunc)
 
+    print(f"Embedding articles: {len(article_texts)} texts")
     art_vecs = embed_texts(model, article_texts, batch_size=args.batch_size)
 
     art_out = articles[["id", "url", "published_date"]].copy()
@@ -137,6 +138,7 @@ def main() -> None:
         chunk_texts.append(txt2)
         chunk_trunc_flags.append(was_trunc)
 
+    print(f"Embedding chunks: {len(chunk_texts)} texts")
     chk_vecs = embed_texts(model, chunk_texts, batch_size=args.batch_size)
 
     chk_out = chunks[[
