@@ -76,7 +76,7 @@ def detect_entities(
     matches: Dict[str, List[str]] = {}
     conf: Dict[str, int] = {}
 
-    def scan(field: str, allow_token: bool) -> None:
+    def scan(field: str, allow_token: bool, require_all_tokens: bool = False) -> None:
         vals = gazetteer.get(field, {}).get("values", []) or []
         vals_r = gazetteer.get(field, {}).get("values_roman_norm", []) or []
 
@@ -115,10 +115,15 @@ def detect_entities(
                 vtok = set(tokenize_loose(v))
                 if not vtok:
                     continue
-                if len(qtok.intersection(vtok)) > 0:
-                    if v not in got:
-                        got.append(v)
-                        score += 1
+                if require_all_tokens:
+                    # All tokens of the entity name must appear in the query (prevents
+                    # common surname like "singh" alone matching many contributors)
+                    matched = len(vtok) >= 2 and vtok.issubset(qtok)
+                else:
+                    matched = len(qtok.intersection(vtok)) > 0
+                if matched and v not in got:
+                    got.append(v)
+                    score += 1
 
         # If dev query, try romanized tokens too
         if allow_token and mode == "dev" and len(got) < max_per_field:
@@ -129,10 +134,13 @@ def detect_entities(
                 vtok = set(tokenize_loose(roman_norm(v)))
                 if not vtok:
                     continue
-                if len(qtok.intersection(vtok)) > 0:
-                    if v not in got:
-                        got.append(v)
-                        score += 1
+                if require_all_tokens:
+                    matched = len(vtok) >= 2 and vtok.issubset(qtok)
+                else:
+                    matched = len(qtok.intersection(vtok)) > 0
+                if matched and v not in got:
+                    got.append(v)
+                    score += 1
 
         if got:
             matches[field] = got
@@ -140,8 +148,8 @@ def detect_entities(
 
     # Locations: allow token matching, strong signal
     scan("locations_norm", allow_token=True)
-    # Contributors: phrase-only (avoid false positives)
-    scan("contributors_norm", allow_token=False)
+    # Contributors: all tokens of the name must appear in query to avoid false positives
+    scan("contributors_norm", allow_token=True, require_all_tokens=True)
     # Categories/tags: allow token matching but treated as soft unless very confident
     scan("categories_norm", allow_token=True)
     scan("tags_norm", allow_token=True)

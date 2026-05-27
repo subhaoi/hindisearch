@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 import typesense
 from qdrant_client import QdrantClient
+from qdrant_client.http import models as qm
 from sentence_transformers import SentenceTransformer
 
 # IMPORTANT: script-mode imports (python scripts/..). Do NOT use scripts.utils or relative imports.
@@ -257,17 +258,45 @@ class QueryLabelRequest(BaseModel):
     note: Optional[str] = None
 
 
+def get_author_article_ids(contributor_names: List[str]) -> List[str]:
+    name_set = {n.strip().lower() for n in contributor_names if n}
+    return [
+        aid for aid, meta in articles_meta.items()
+        if any(c.strip().lower() in name_set for c in (meta.get("contributors_norm") or []))
+    ]
+
+
+def get_location_article_ids(location_names: List[str], cap: int = 500) -> List[str]:
+    name_set = {n.strip().lower() for n in location_names if n}
+    ids = [
+        aid for aid, meta in articles_meta.items()
+        if any(c.strip().lower() in name_set for c in (meta.get("locations_norm") or []))
+    ]
+    return ids[:cap]
+
+
+def strip_entities_from_semantic_query(query: str, entity_values: List[str]) -> str:
+    result = query
+    for name in entity_values:
+        result = re.sub(re.escape(name.strip()), "", result, flags=re.IGNORECASE)
+    result = re.sub(r"\s+", " ", result).strip()
+    # Fall back to original if stripping removes everything
+    return result if result else query
+
+
 def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
     # query_used is already canonicalized; mode determines which indexed fields to use
     if mode == "dev":
+        # contributors_norm and locations_norm store Roman text, so they won't
+        # match Devanagari queries — entity detection handles dev-mode filtering instead.
         query_by = "title_hi,summary_hi,content_hi"
         weights = "6,3,1"
     elif mode == "mixed":
-        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm"
-        weights = "6,3,1,1"
+        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm,contributors_norm,locations_norm"
+        weights = "6,3,1,1,5,4"
     else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm"
-        weights = "6,3,1"
+        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_norm,locations_norm"
+        weights = "6,3,1,5,4"
 
     params: Dict[str, Any] = {
         "q": query_used,
@@ -289,15 +318,17 @@ def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> Li
     return out
 
 
-def qdrant_search_articles(query_semantic: str) -> List[Tuple[str, float]]:
+def qdrant_search_articles(query_semantic: str, article_ids: Optional[List[str]] = None) -> List[Tuple[str, float]]:
     q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
-    res = qd.search(collection_name=QCOL_ART, query_vector=q_vec, limit=SEM_ARTICLE_TOPK, with_payload=False)
+    qfilter = qm.Filter(must=[qm.FieldCondition(key="article_id", match=qm.MatchAny(any=article_ids))]) if article_ids else None
+    res = qd.search(collection_name=QCOL_ART, query_vector=q_vec, limit=SEM_ARTICLE_TOPK, with_payload=False, query_filter=qfilter)
     return [(str(p.id), float(p.score)) for p in res]
 
 
-def qdrant_search_chunks(query_semantic: str) -> List[Tuple[str, str, float]]:
+def qdrant_search_chunks(query_semantic: str, article_ids: Optional[List[str]] = None) -> List[Tuple[str, str, float]]:
     q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
-    res = qd.search(collection_name=QCOL_CHK, query_vector=q_vec, limit=SEM_CHUNK_TOPK, with_payload=True)
+    qfilter = qm.Filter(must=[qm.FieldCondition(key="article_id", match=qm.MatchAny(any=article_ids))]) if article_ids else None
+    res = qd.search(collection_name=QCOL_CHK, query_vector=q_vec, limit=SEM_CHUNK_TOPK, with_payload=True, query_filter=qfilter)
     out: List[Tuple[str, str, float]] = []
     for p in res:
         payload = p.payload or {}
@@ -406,15 +437,44 @@ def search(req: SearchRequest) -> SearchResponse:
     if auto_f:
         filter_final = f"({filter_final}) && ({auto_f})" if filter_final else auto_f
 
+    detected_contributors = entity.get("matches", {}).get("contributors_norm") or []
+    detected_locations = entity.get("matches", {}).get("locations_norm") or []
+    contrib_conf = entity.get("confidence", {}).get("contributors_norm", 0)
+    loc_conf = entity.get("confidence", {}).get("locations_norm", 0)
+
+    has_author_entity = bool(detected_contributors)
+    has_location_entity = bool(detected_locations)
+
+    # Qdrant filter: contributor takes priority (more specific than location).
+    # Only apply location filter when no contributor detected.
+    qdrant_article_ids: Optional[List[str]] = None
+    if has_author_entity:
+        ids = get_author_article_ids(detected_contributors)
+        qdrant_article_ids = ids if ids else None
+    elif has_location_entity:
+        ids = get_location_article_ids(detected_locations)
+        qdrant_article_ids = ids if ids else None
+
+    # Strip detected entity names from the semantic query so the embedding focuses
+    # on the topic. Only strip on phrase-match confidence (>=2) to avoid stripping
+    # false positives. Guard: fall back to original if nothing remains after stripping.
+    entities_to_strip: List[str] = []
+    if contrib_conf >= 2:
+        entities_to_strip.extend(detected_contributors)
+    if loc_conf >= 2:
+        entities_to_strip.extend(detected_locations)
+    if entities_to_strip:
+        query_semantic = strip_entities_from_semantic_query(query_semantic, entities_to_strip)
+
     lex = typesense_search(query_used=query_used, mode=mode, filter_by=filter_final)
-    sem_a = qdrant_search_articles(query_semantic=query_semantic)
-    sem_c = qdrant_search_chunks(query_semantic=query_semantic)
+    sem_a = qdrant_search_articles(query_semantic=query_semantic, article_ids=qdrant_article_ids)
+    sem_c = qdrant_search_chunks(query_semantic=query_semantic, article_ids=qdrant_article_ids)
 
     candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
 
     q_tokens = tokenize_query(query_used)
     now_ts = int(time.time())
-    ranked = ranker_v1(candidates, q_tokens, now_ts=now_ts)
+    ranked = ranker_v1(candidates, q_tokens, now_ts=now_ts, has_author_entity=has_author_entity, has_location_entity=has_location_entity)
 
     per_page = max(1, int(req.per_page))
     page = max(1, int(req.page))
@@ -468,6 +528,10 @@ def search(req: SearchRequest) -> SearchResponse:
             "entity_confidence": entity.get("confidence", {}),
             "filter_by_auto": entity.get("filter_by_auto"),
             "filter_by_final": filter_final,
+            "has_author_entity": has_author_entity,
+            "has_location_entity": has_location_entity,
+            "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
+            "query_semantic_used": query_semantic,
         },
     )
 

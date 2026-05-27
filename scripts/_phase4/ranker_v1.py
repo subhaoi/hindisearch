@@ -27,7 +27,7 @@ def recency_score(published_ts: int, now_ts: int) -> float:
     return float(max(0.0, 1.0 - (age_days / 1095.0)))
 
 
-def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts: int) -> List[Dict[str, Any]]:
+def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts: int, has_author_entity: bool = False, has_location_entity: bool = False) -> List[Dict[str, Any]]:
     lex = [float(c.get("lexical_score", 0.0)) for c in candidates]
     sa = [float(c.get("sem_article", 0.0)) for c in candidates]
     sc = [float(c.get("sem_chunk", 0.0)) for c in candidates]
@@ -36,15 +36,16 @@ def ranker_v1(candidates: List[Dict[str, Any]], query_tokens: List[str], now_ts:
     sa_n = minmax_norm(sa)
     sc_n = minmax_norm(sc)
 
-    # Conservative: lexical dominates top-3
     W_LEX = 1.0
     W_SC = 0.40
     W_SA = 0.18
     W_TAG = 0.12
     W_CAT = 0.10
-    W_LOC = 0.15
-    W_CONTRIB = 0.06
-    W_REC = 0.08
+    # Boost contributor/location weight when that entity is detected in the query.
+    # Recency matters less when the user is explicitly asking for a specific author/place.
+    W_CONTRIB = 0.50 if has_author_entity else 0.06
+    W_LOC = 0.40 if has_location_entity else 0.15
+    W_REC = 0.03 if (has_author_entity or has_location_entity) else 0.08
     W_ENTITY = 0.10
 
     out: List[Dict[str, Any]] = []
