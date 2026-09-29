@@ -687,6 +687,8 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
         "q": " ".join(lex),
         # Same tokens with Hindi inflections stripped, for the *_stem fields
         "q_stem": " ".join(stemmed(t) for t in lex),
+        # Latin words as typed (minus stopwords), for the English title_en/summary_en fields
+        "q_en": " ".join(t for t in toks if t.isascii() and roman_key(t) not in ROMAN_STOPWORD_KEYS),
         "q_full": " ".join(toks),
         "roman_norm": text_to_key(raw),
     }

@@ -63,6 +63,10 @@ def main() -> None:
 
             {"name": "seo_title_roman_norm", "type": "string", "optional": True},
 
+            # English translations of title/summary (27_translate_articles.py), for English queries
+            {"name": "title_en", "type": "string", "optional": True, "stem": True},
+            {"name": "summary_en", "type": "string", "optional": True, "stem": True},
+
             # Folded + stemmed Hindi (utils.stem_text) so बच्चा/बच्चे/बच्चों match each other
             {"name": "title_stem", "type": "string", "optional": True},
             {"name": "summary_stem", "type": "string", "optional": True},

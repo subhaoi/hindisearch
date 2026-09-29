@@ -63,6 +63,8 @@ BACKUP_PATHS = [
     "data/phase_3/chunk_vectors.parquet",
     "data/phase_45/gazetteer_v1.json",
     "data/phase_45/translit_vocab_v1.json",
+    "data/phase_3/translations.parquet",
+    "data/phase_3/translation_cache.parquet",
     "data/phase_4/ranker_v2_weights.json",
 ]
 
@@ -371,6 +373,11 @@ class RefreshRun:
             ))
             self.step("gazetteer", self.py("20_build_gazetteer.py"))
             self.step("transliteration vocab", self.py("21_build_translit_vocab.py"))
+            # English titles/summaries (new or edited articles only). Not fatal: without it the
+            # new articles just lack English fields until the next successful run.
+            if self.step("translate to English", self.py("27_translate_articles.py"), fatal=False) != 0:
+                self.log("WARNING: translation failed (HF_TOKEN missing or model not accepted?); "
+                         "English fields keep last run's values, new articles have none")
 
             # 4. Live updates (in place: upsert + prune)
             live_touched = True

@@ -71,6 +71,15 @@ def main() -> None:
     loc_patterns = location_patterns(gaz_loc["values"], aliases)
     series_config = load_series(root / "config" / "series.json")
 
+    # English title/summary from 27_translate_articles.py (optional: missing file = no English fields)
+    translations: Dict[str, Dict[str, str]] = {}
+    tr_path = paths.data / "phase_3" / "translations.parquet"
+    if tr_path.exists():
+        tr = read_parquet(tr_path)
+        translations = {str(r["id"]): r for r in tr.to_dict("records")}
+    else:
+        print(f"Note: {tr_path} not found; English fields left empty (run 27_translate_articles.py)")
+
     report: Dict[str, Any] = {"rows": len(df), "indexed": 0, "failed": 0, "failures": []}
 
     docs: List[Dict[str, Any]] = []
@@ -116,6 +125,8 @@ def main() -> None:
             "locations_norm": safe_list(row.get("locations_norm")),
             "contributors_norm": safe_list(row.get("contributors_norm")),
             "locations_all": locations_all,
+            "title_en": (translations.get(str(row.get("id"))) or {}).get("title_en") or "",
+            "summary_en": (translations.get(str(row.get("id"))) or {}).get("summary_en") or "",
             "series": article_series(title_hi, safe_list(row.get("categories_norm")),
                                      None if is_nullish(row.get("multimedia_type")) else str(row.get("multimedia_type")),
                                      series_config),

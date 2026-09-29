@@ -351,7 +351,8 @@ LEX_FUSE_K = 20
 def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Dict[str, Any]]:
     """
     Keyword retrieval. canon["q"] is canonicalized (folded Devanagari, Latin as match keys).
-    Hindi queries also run a stemmed search (बच्चा also finds बच्चों/बच्चे) in the same
+    English-letter queries also run against the English title/summary translations, and
+    Hindi queries also run a stemmed search (बच्चा also finds बच्चों/बच्चे), in the same
     request; the two lists are rank-fused so exact-form matches still come first.
     Metadata (contributors/locations_norm) is Devanagari; *_key fields hold its match keys.
     """
@@ -388,6 +389,10 @@ def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Di
         searches = [browse]
     else:
         searches = [params(canon["q"], query_by, weights, typos)]
+    if canon["q"] != "*" and mode in ("roman", "mixed") and canon.get("q_en"):
+        # English queries against the English translations of titles/summaries
+        # (27_translate_articles.py; Typesense stems these fields)
+        searches.append(params(canon["q_en"], "title_en,summary_en", "3,1", "1"))
     if canon["q"] != "*" and mode == "dev" and canon.get("q_stem") and canon["q_stem"] != canon["q"]:
         # Stems are short; typo tolerance on them mostly adds noise
         searches.append(params(canon["q_stem"], "title_stem,summary_stem,content_stem", "6,3,1", "0"))
