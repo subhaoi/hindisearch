@@ -38,6 +38,9 @@ def main() -> None:
 
     load_dotenv()
     collection = os.environ.get("TYPESENSE_COLLECTION", "idr_articles_hi_v1")
+    # ICU word segmentation for Hindi fields. Set TYPESENSE_HI_LOCALE= (empty) to use the default tokenizer.
+    hi_locale = os.environ.get("TYPESENSE_HI_LOCALE", "hi").strip()
+    hi = {"locale": hi_locale} if hi_locale else {}
 
     schema: Dict[str, Any] = {
         "name": collection,
@@ -48,17 +51,21 @@ def main() -> None:
             {"name": "published_date", "type": "string", "optional": True},
 
             # Hindi fields
-            {"name": "title_hi", "type": "string"},
-            {"name": "summary_hi", "type": "string", "optional": True},
-            {"name": "content_hi", "type": "string", "optional": True},
+            {"name": "title_hi", "type": "string", **hi},
+            {"name": "summary_hi", "type": "string", "optional": True, **hi},
+            {"name": "content_hi", "type": "string", "optional": True, **hi},
 
-            # Romanized + normalized fields (for Roman queries)
+            # Romanized match-key fields (for Roman queries; see utils.text_to_key)
             {"name": "title_roman_norm", "type": "string", "optional": True},
             {"name": "summary_roman_norm", "type": "string", "optional": True},
             {"name": "content_roman_norm", "type": "string", "optional": True},
 
             # Mixed-script helper field
             {"name": "content_mixed_norm", "type": "string", "optional": True},
+
+            # Match keys of contributor/location names, searchable by Roman queries
+            {"name": "contributors_key", "type": "string[]", "optional": True},
+            {"name": "locations_key", "type": "string[]", "optional": True},
 
             # Facets / filters
             {"name": "categories_norm", "type": "string[]", "facet": True, "optional": True},

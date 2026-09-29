@@ -1,3 +1,5 @@
 *venv/
 data/
 *.pyc
+models/
+runs/

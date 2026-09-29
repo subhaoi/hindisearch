@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from utils import (
     Paths, read_parquet, ensure_dir, write_json,
-    is_nullish, iso_to_epoch_seconds, devanagari_to_roman_hk
+    is_nullish, iso_to_epoch_seconds, text_to_key, clean_title
 )
 
 
@@ -32,11 +32,13 @@ def get_client() -> typesense.Client:
 
 
 def safe_list(val: Any) -> List[str]:
-    if is_nullish(val):
+    # Parquet list columns load as numpy arrays, not lists
+    if val is None or isinstance(val, (str, bytes, float, int)):
         return []
-    if isinstance(val, (list, tuple)):
-        return [str(x) for x in val if not is_nullish(x)]
-    return []
+    try:
+        return [str(x) for x in list(val) if not is_nullish(x)]
+    except TypeError:
+        return []
 
 
 def main() -> None:
@@ -63,9 +65,10 @@ def main() -> None:
         published_date = None if is_nullish(row.get("published_date")) else str(row.get("published_date"))
         published_ts = iso_to_epoch_seconds(published_date)
 
-        title_hi = "" if is_nullish(row.get("title_hi")) else str(row.get("title_hi"))
+        title_hi = clean_title(row.get("title_hi"))
         summary_hi = "" if is_nullish(row.get("summary_hi")) else str(row.get("summary_hi"))
         content_hi = "" if is_nullish(row.get("content_hi")) else str(row.get("content_hi"))
+        content_key = text_to_key(content_hi)
 
         doc = {
             "id": str(row.get("id")),
@@ -77,18 +80,20 @@ def main() -> None:
             "summary_hi": summary_hi,
             "content_hi": content_hi,
 
-            # Romanized fields for Roman queries
-            "title_roman_norm": devanagari_to_roman_hk(title_hi),
-            "summary_roman_norm": devanagari_to_roman_hk(summary_hi),
-            "content_roman_norm": devanagari_to_roman_hk(content_hi),
+            # Romanized match keys for Roman queries
+            "title_roman_norm": text_to_key(title_hi),
+            "summary_roman_norm": text_to_key(summary_hi),
+            "content_roman_norm": content_key,
 
             # Mixed: original + romanized for mixed-script queries
-            "content_mixed_norm": f"{content_hi}\n\n{devanagari_to_roman_hk(content_hi)}".strip(),
+            "content_mixed_norm": f"{content_hi}\n\n{content_key}".strip(),
 
             "categories_norm": safe_list(row.get("categories_norm")),
             "tags_norm": safe_list(row.get("tags_norm")),
             "locations_norm": safe_list(row.get("locations_norm")),
             "contributors_norm": safe_list(row.get("contributors_norm")),
+            "locations_key": [k for k in (text_to_key(x) for x in safe_list(row.get("locations_norm"))) if k],
+            "contributors_key": [k for k in (text_to_key(x) for x in safe_list(row.get("contributors_norm"))) if k],
 
             "article_type": None if is_nullish(row.get("article_type")) else str(row.get("article_type")),
             "multimedia_type": None if is_nullish(row.get("multimedia_type")) else str(row.get("multimedia_type")),

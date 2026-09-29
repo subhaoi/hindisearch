@@ -133,6 +133,16 @@ def normalize_devanagari_text(s: Optional[str]) -> Optional[str]:
     return s2
 
 
+_TITLE_SITE_SUFFIX_RE = re.compile(r"\s*[|\-–]\s*(आईडीआर|IDR)\s*$", re.IGNORECASE)
+
+
+def clean_title(t: Optional[str]) -> str:
+    """Drop the SEO site suffix most titles carry ("... | आईडीआर")."""
+    if is_nullish(t):
+        return ""
+    return _TITLE_SITE_SUFFIX_RE.sub("", str(t)).strip()
+
+
 DEVANAGARI_RE = reg.compile(r"\p{Devanagari}")
 LATIN_RE = reg.compile(r"\p{Latin}")
 
@@ -229,53 +239,218 @@ def iso_to_epoch_seconds(iso: Optional[str]) -> int:
         return 0
 
 
-# --------- Romanization for indexing (Devanagari -> Roman) ---------
+# --------- Romanization (Devanagari -> colloquial Roman) + phonetic match keys ---------
+#
+# Roman Typesense fields, roman queries and gazetteer entries are all reduced to a
+# "match key": a lossy phonetic form that collapses common spelling variants
+# (shiksha/siksha, kisaan/kisan, panchaayat/panchayat). Devanagari is romanized the
+# way people type Hindi (श→sh, च→ch, ं→n, schwa deletion), not with a scholarly
+# scheme like Harvard-Kyoto (which gives zikSA, kisAna, paMcAyata).
 
-def devanagari_to_roman_hk(s: Optional[str]) -> str:
+_DEV_CONSONANTS = {
+    "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "n",
+    "च": "ch", "छ": "chh", "ज": "j", "झ": "jh", "ञ": "n",
+    "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+    "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n", "ऩ": "n",
+    "प": "p", "फ": "ph", "ब": "b", "भ": "bh", "म": "m",
+    "य": "y", "र": "r", "ऱ": "r", "ल": "l", "ळ": "l", "ऴ": "l", "व": "v",
+    "श": "sh", "ष": "sh", "स": "s", "ह": "h",
+    # precomposed nukta forms (U+0958..U+095F)
+    "क़": "q", "ख़": "kh", "ग़": "g", "ज़": "z",
+    "ड़": "d", "ढ़": "dh", "फ़": "f", "य़": "y",
+}
+_NUKTA = "़"
+_VIRAMA = "्"
+# ड़/ढ़ are usually typed d/dh (ladki, padhai)
+_NUKTA_MAP = {"क": "q", "ख": "kh", "ग": "g", "ज": "z", "ड": "d", "ढ": "dh", "फ": "f", "य": "y"}
+_DEV_IND_VOWELS = {
+    "अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo", "ऋ": "ri", "ॠ": "ri",
+    "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au", "ऑ": "o", "ऍ": "e", "ऎ": "e", "ऒ": "o", "ॐ": "om",
+}
+_DEV_MATRAS = {
+    "ा": "aa", "ि": "i", "ी": "ee", "ु": "u", "ू": "oo", "ृ": "ri", "ॄ": "ri",
+    "े": "e", "ै": "ai", "ो": "o", "ौ": "au", "ॉ": "o", "ॅ": "e", "ॆ": "e", "ॊ": "o",
+}
+_DEV_CODA = {"ं": "M", "ँ": "n", "ः": "h"}  # "M" resolved in _syllables_to_roman
+_DEV_DIGITS = {chr(0x0966 + i): str(i) for i in range(10)}
+
+
+def _syllables_to_roman(syls: List[List[Any]], schwa: int) -> str:
     """
-    Deterministic Devanagari -> Roman (Harvard-Kyoto) using indic-transliteration.
-    Then normalize for matching.
+    syls: [consonant_cluster, vowel, coda, has_inherent_a, is_conjunct]
+    schwa: 0 = keep every inherent 'a', 1 = drop word-final, 2 = also drop medial (VC_CV rule).
+    """
+    n = len(syls)
+    if n == 0:
+        return ""
+    if schwa >= 1 and n > 1:
+        last = syls[-1]
+        # Keep the final 'a' after a conjunct (स्वास्थ्य -> swasthya)
+        if last[3] and not last[4] and not last[2]:
+            last[1] = ""
+    if schwa >= 2:
+        for i in range(n - 2, 0, -1):
+            s, prev, nxt = syls[i], syls[i - 1], syls[i + 1]
+            # Not before a conjunct: परिवर्तन -> parivartan, not parivrtan
+            if s[3] and s[1] == "a" and not s[4] and not s[2] and prev[1] and nxt[0] and nxt[1] and not nxt[4]:
+                s[1] = ""
+    out: List[str] = []
+    for i, (cons, vowel, coda, inherent, _) in enumerate(syls):
+        # "M" marks anusvara: word-final after inherent 'a' it is typed 'm' (स्वयं -> swayam)
+        coda = coda.replace("M", "m" if (i == n - 1 and inherent and vowel == "a") else "n")
+        out.append(cons + vowel + coda)
+    return "".join(out)
+
+
+def devanagari_to_roman(s: Optional[str], schwa: int = 2) -> str:
+    """
+    Devanagari -> Roman as Hindi is commonly typed (किसान -> kisaan, शिक्षा -> shikshaa,
+    सरकार -> sarkaar). Non-Devanagari text passes through unchanged.
     """
     if is_nullish(s):
         return ""
-    try:
-        from indic_transliteration import sanscript
-        from indic_transliteration.sanscript import transliterate
-        roman = transliterate(str(s), sanscript.DEVANAGARI, sanscript.HK)
-    except Exception:
-        # Fallback: return raw; still normalized below
-        roman = str(s)
+    text = str(s)
+    out: List[str] = []
+    syls: List[List[Any]] = []
+    cluster = ""
+    ncons = 0
 
-    return roman_normalize_for_index(roman)
+    def flush() -> None:
+        nonlocal syls, cluster, ncons
+        if cluster:  # word ends in a virama
+            syls.append([cluster, "", "", False, False])
+        if syls:
+            out.append(_syllables_to_roman(syls, schwa))
+        syls, cluster, ncons = [], "", 0
+
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        cons = _DEV_CONSONANTS.get(ch)
+        if cons is not None:
+            i += 1
+            if i < n and text[i] == _NUKTA:
+                cons = _NUKTA_MAP.get(ch, cons)
+                i += 1
+            if i < n and text[i] == _VIRAMA:
+                cluster += cons
+                ncons += 1
+                i += 1
+                continue
+            cluster = (cluster + cons).replace("jn", "gy")  # ज्ञ -> gy
+            ncons += 1
+            if i < n and text[i] in _DEV_MATRAS:
+                vowel, inherent = _DEV_MATRAS[text[i]], False
+                i += 1
+            else:
+                vowel, inherent = "a", True
+            coda = ""
+            while i < n and text[i] in _DEV_CODA:
+                coda += _DEV_CODA[text[i]]
+                i += 1
+            syls.append([cluster, vowel, coda, inherent, ncons > 1])
+            cluster, ncons = "", 0
+        elif ch in _DEV_IND_VOWELS or ch in _DEV_MATRAS:
+            if cluster:
+                syls.append([cluster, "", "", False, False])
+                cluster, ncons = "", 0
+            vowel = _DEV_IND_VOWELS.get(ch) or _DEV_MATRAS[ch]
+            i += 1
+            coda = ""
+            while i < n and text[i] in _DEV_CODA:
+                coda += _DEV_CODA[text[i]]
+                i += 1
+            syls.append(["", vowel, coda, False, False])
+        elif ch in _DEV_CODA:
+            if syls:
+                syls[-1][2] += _DEV_CODA[ch]
+            i += 1
+        elif ch in (_NUKTA, _VIRAMA, "‌", "‍"):
+            i += 1
+        else:
+            flush()
+            out.append(_DEV_DIGITS.get(ch, " " if ch in "।॥" else ch))
+            i += 1
+    flush()
+    return "".join(out)
 
 
 _ROMAN_SPACE_RE = re.compile(r"\s+")
 _ROMAN_NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]+")
+_ROMAN_KEY_RULES = [
+    (re.compile(r"chh"), "ch"),
+    (re.compile(r"c+h?c*h"), "ch"),  # bachcha/bacha/bachha/baccha
+    (re.compile(r"x"), "ks"),
+    (re.compile(r"sh"), "s"),
+    (re.compile(r"ph"), "f"),
+    (re.compile(r"w"), "v"),
+    (re.compile(r"z"), "j"),
+    (re.compile(r"q"), "k"),
+    (re.compile(r"ee"), "i"),
+    (re.compile(r"oo"), "u"),
+    (re.compile(r"ou"), "au"),
+    (re.compile(r"m(?=[bp])"), "n"),
+    (re.compile(r"([a-z])\1+"), r"\1"),
+]
 
-def roman_normalize_for_index(s: Optional[str]) -> str:
+
+def roman_key(s: Optional[str]) -> str:
     """
-    Roman normalization used for indexed roman fields.
-    Goal: collapse user spelling variance into stable forms.
+    Lossy phonetic key for Roman text, applied identically to indexed text and queries:
+    shiksha/siksha -> siksa, kisaan/kisan -> kisan, swasthya/svasthya -> svasthya.
     """
     if is_nullish(s):
         return ""
-    t = str(s).lower().strip()
+    t = unicodedata.normalize("NFKD", str(s).lower())
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
     t = _ROMAN_NON_ALNUM_RE.sub(" ", t)
-    t = _ROMAN_SPACE_RE.sub(" ", t).strip()
+    for rx, rep in _ROMAN_KEY_RULES:
+        t = rx.sub(rep, t)
+    return _ROMAN_SPACE_RE.sub(" ", t).strip()
 
-    # Collapse repeated vowels
-    t = re.sub(r"a{2,}", "a", t)
-    t = re.sub(r"i{2,}", "i", t)
-    t = re.sub(r"u{2,}", "u", t)
-    t = re.sub(r"e{2,}", "e", t)
-    t = re.sub(r"o{2,}", "o", t)
 
-    # Common roman drift rules (conservative)
-    t = t.replace("v", "w")
-    t = re.sub(r"\b(yojna|yojana|yojnaa)\b", "yojana", t)
+def text_to_key(s: Optional[str], schwa: int = 2) -> str:
+    """Any script -> match key. Used for Typesense roman fields, queries and the gazetteer."""
+    return roman_key(devanagari_to_roman(s, schwa=schwa))
 
-    t = _ROMAN_SPACE_RE.sub(" ", t).strip()
-    return t
+
+def text_to_key_variants(s: Optional[str]) -> List[str]:
+    """Keys with and without schwa deletion (users type both 'yojna' and 'yojana')."""
+    out: List[str] = []
+    for schwa in (2, 1, 0):
+        k = text_to_key(s, schwa=schwa)
+        if k and k not in out:
+            out.append(k)
+    return out
+
+
+# --------- Query canonicalization ---------
+
+HINDI_STOPWORDS = {
+    "के", "का", "की", "को", "में", "मे", "से", "पर", "और", "है", "हैं", "था", "थे", "थी",
+    "भी", "एक", "यह", "वह", "ये", "वे", "इस", "उस", "इन", "उन", "ने", "लिए", "लिये", "तो",
+    "ही", "या", "क्या", "कैसे", "क्यों", "कि", "जो", "हो", "होता", "होती", "होते", "कर",
+    "करना", "करने", "किया", "गया", "गई", "रहा", "रही", "रहे", "द्वारा", "तक", "अपने", "अपनी",
+}
+_ROMAN_HINDI_STOPWORDS = [
+    "ke", "ka", "ki", "ko", "me", "mein", "main", "se", "par", "aur", "hai", "hain", "tha", "the",
+    "thi", "bhi", "ek", "yah", "yeh", "ye", "vah", "voh", "wo", "is", "us", "in", "un", "ne",
+    "liye", "lie", "to", "hi", "ya", "kya", "kaise", "kyon", "kyu", "jo", "ho", "kar", "karna",
+    "karne", "kiya", "gaya", "dwara", "tak", "apne", "apni",
+]
+_ENGLISH_STOPWORDS = [
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "of", "on", "or",
+    "that", "what", "with", "about", "into", "its",
+]
+ROMAN_STOPWORD_KEYS = {roman_key(w) for w in _ROMAN_HINDI_STOPWORDS + _ENGLISH_STOPWORDS}
+
+_QUERY_TOKEN_RE = reg.compile(r"[\p{L}\p{M}\p{N}]+")
+
+
+def query_tokens(s: Optional[str]) -> List[str]:
+    if is_nullish(s):
+        return []
+    return _QUERY_TOKEN_RE.findall(str(s).lower())
 
 
 def is_query_devanagari(q: str) -> bool:
@@ -290,20 +465,84 @@ def is_query_mixed(q: str) -> bool:
 
 def canonicalize_query_for_search(raw_query: str) -> dict:
     """
-    For Phase 2 routing only:
-    - If Devanagari: use normalized Hindi query.
-    - Else: use roman-normalized query.
+    Returns:
+      mode:   dev | roman | mixed
+      q:      lexical query for Typesense. Devanagari tokens stay as-is, Latin tokens become
+              match keys (to hit *_roman_norm / *_key fields); stopwords are dropped.
+      q_full: normalized query with every token kept (entity detection uses this).
     """
     raw = "" if is_nullish(raw_query) else str(raw_query)
     if is_query_mixed(raw):
-        dev = normalize_devanagari_text(raw) or raw
-        roman_norm = roman_normalize_for_index(raw)
-        return {"raw": raw, "mode": "mixed", "q": dev, "roman_norm": roman_norm}
-    if is_query_devanagari(raw):
-        dev = normalize_devanagari_text(raw) or raw
-        return {"raw": raw, "mode": "dev", "q": dev, "roman_norm": ""}
-    roman_norm = roman_normalize_for_index(raw)
-    return {"raw": raw, "mode": "roman", "q": roman_norm, "roman_norm": roman_norm}
+        mode = "mixed"
+    elif is_query_devanagari(raw):
+        mode = "dev"
+    else:
+        mode = "roman"
+
+    toks = query_tokens(normalize_devanagari_text(raw) or raw)
+
+    def lexical(tok: str) -> str:
+        return tok if DEVANAGARI_RE.search(tok) else roman_key(tok)
+
+    def is_stop(tok: str) -> bool:
+        return tok in HINDI_STOPWORDS if DEVANAGARI_RE.search(tok) else roman_key(tok) in ROMAN_STOPWORD_KEYS
+
+    lex = [lexical(t) for t in toks if not is_stop(t)]
+    if not lex:  # query was only stopwords
+        lex = [lexical(t) for t in toks]
+    lex = [t for t in lex if t]
+
+    return {
+        "raw": raw,
+        "mode": mode,
+        "q": " ".join(lex),
+        "q_full": " ".join(toks),
+        "roman_norm": text_to_key(raw),
+    }
+
+
+# Common English words: never transliterate these into Hindi.
+ENGLISH_COMMON_WORDS = set(_ENGLISH_STOPWORDS) | {
+    "the", "this", "these", "those", "was", "were", "has", "have", "had", "not", "no", "can",
+    "will", "who", "why", "when", "where", "which", "all", "more", "most", "new", "our", "your",
+    "their", "his", "her", "we", "you", "they", "it", "do", "does", "did", "than", "then",
+    "health", "education", "school", "women", "woman", "girls", "children", "child", "rural",
+    "urban", "water", "climate", "change", "impact", "funding", "fund", "ngo", "ngos", "csr",
+    "policy", "government", "community", "communities", "training", "workers", "worker",
+    "development", "livelihood", "livelihoods", "gender", "data", "social", "sector", "india",
+    "program", "programme", "scheme", "rights", "farmers", "agriculture", "nutrition",
+    "sanitation", "migration", "tribal", "disability", "leadership", "philanthropy",
+}
+
+
+def roman_query_to_devanagari(query: str, vocab: Dict[str, str], min_hit_ratio: float = 0.5) -> Optional[str]:
+    """
+    Transliterate the Latin tokens of a roman/mixed query into Devanagari using a
+    corpus-derived vocabulary {match_key: devanagari_word} (see 21_build_translit_vocab.py).
+    Returns None when fewer than `min_hit_ratio` of the Latin tokens look like romanized
+    Hindi, i.e. the query is probably English and is better embedded as-is.
+    """
+    if not vocab or is_nullish(query):
+        return None
+    toks = query_tokens(query)
+    latin = [t for t in toks if not DEVANAGARI_RE.search(t)]
+    if not latin:
+        return None
+    hits = 0
+    out: List[str] = []
+    for t in toks:
+        if DEVANAGARI_RE.search(t) or t in ENGLISH_COMMON_WORDS or len(t) < 2:
+            out.append(t)
+            continue
+        dev = vocab.get(roman_key(t))
+        if dev:
+            hits += 1
+            out.append(dev)
+        else:
+            out.append(t)
+    if hits == 0 or hits / len(latin) < min_hit_ratio:
+        return None
+    return " ".join(out)
 
 # --------- Phase 3: chunking + embeddings helpers ---------
 

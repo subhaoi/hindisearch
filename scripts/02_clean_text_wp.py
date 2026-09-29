@@ -7,16 +7,16 @@ from typing import Any, Dict, List
 import pandas as pd
 from tqdm import tqdm
 
-from utils import Paths, read_parquet, write_parquet, write_json, strip_wp_html_to_text, normalize_devanagari_text, script_stats, is_nullish
+from utils import Paths, read_parquet, write_parquet, write_json, strip_wp_html_to_text, normalize_devanagari_text, script_stats, is_nullish, clean_title
 
 
 def choose_title(row: pd.Series) -> str:
     yoast = row.get("_yoast_wpseo_title")
     title = row.get("Title")
     if not is_nullish(yoast):
-        return str(yoast)
+        return clean_title(yoast)
     if not is_nullish(title):
-        return str(title)
+        return clean_title(title)
     return ""
 
 

@@ -8,7 +8,6 @@ python-dateutil==2.9.0.post0
 tqdm==4.67.1
 typesense==0.21.0
 python-dotenv==1.0.1
-indic-transliteration==2.3.59
 qdrant-client==1.12.1
 sentence-transformers==3.3.1
 torch==2.5.1
@@ -20,5 +19,7 @@ sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 pydantic==2.10.3
 requests==2.32.3
-python-dotenv==1.0.1
-requests==2.32.3
+# ranker training (scripts/22_train_ranker.py)
+scikit-learn==1.5.2
+# ONNX int8 query encoder (scripts/25_export_onnx_query_encoder.py, EMBED_BACKEND=onnx)
+optimum[onnxruntime]==1.23.3

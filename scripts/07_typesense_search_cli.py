@@ -47,15 +47,17 @@ def main() -> None:
     canon = canonicalize_query_for_search(args.q)
     q = canon["q"]
 
+    # Same field routing as the hybrid API (scripts/_phase4/hybrid_search_api.py)
     if canon["mode"] == "dev":
-        query_by = "title_hi,summary_hi,content_hi"
-        weights = "6,3,1"
+        query_by = "title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
+        weights = "6,3,1,5,4"
     elif canon["mode"] == "mixed":
-        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm"
-        weights = "6,3,1,1"
+        query_by = ("title_hi,summary_hi,content_hi,title_roman_norm,summary_roman_norm,"
+                    "content_mixed_norm,contributors_key,locations_key")
+        weights = "6,3,1,6,3,1,5,4"
     else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm"
-        weights = "6,3,1"
+        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_key,locations_key"
+        weights = "6,3,1,5,4"
 
     search_parameters: Dict[str, Any] = {
         "q": q,

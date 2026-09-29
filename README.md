@@ -111,13 +111,21 @@ python scripts/05_typesense_create_collection.py
 python scripts/06_typesense_ingest.py --input data/final/articles_canonical.parquet
 ```
 
-4. Quick smoke tests (auto-detects Hindi vs roman queries):
+4. Load the synonym list (`config/synonyms_v1.json`; re-run after editing it):
+
+```bash
+python scripts/24_typesense_synonyms.py
+```
+
+5. Quick smoke tests (auto-detects Hindi vs roman queries):
 
 ```bash
 python scripts/07_typesense_search_cli.py --q "महिला"
 python scripts/07_typesense_search_cli.py --q "bihar mahila yojana"
-python scripts/07_typesense_search_cli.py --q "बिहार" --filter "locations_norm:=[bihar]"
+python scripts/07_typesense_search_cli.py --q "बिहार" --filter "locations_norm:=[बिहार]"
 ```
+
+How roman queries match: Devanagari text is romanized the way people type Hindi (शिक्षा → shikshaa, सरकार → sarkaar) and both the index and the query are reduced to a phonetic *match key* (`utils.text_to_key`), so `shiksha`/`siksha` and `kisan`/`kisaan` hit the same documents. Metadata (locations, contributors, tags) is stored in Devanagari; `locations_key` / `contributors_key` hold its match keys.
 
 Other helpers:
 
@@ -128,7 +136,7 @@ Other helpers:
 
 ## Phase 3 — Chunking, embeddings, Qdrant ingest
 
-1. Chunk title/summary/content with MPNet-aware windowing:
+1. Chunk title/summary/content with token-aware windowing (E5 tokenizer):
 
 ```bash
 python scripts/10_chunk_articles.py \
@@ -136,7 +144,7 @@ python scripts/10_chunk_articles.py \
   --max-tokens 240 --overlap-tokens 40 --hard-max-tokens 480
 ```
 
-2. Compute article + chunk embeddings (paraphrase-multilingual-mpnet-base-v2):
+2. Compute article + chunk embeddings (`intfloat/multilingual-e5-large`, 1024-dim):
 
 ```bash
 python scripts/11_compute_embeddings.py \
@@ -148,7 +156,7 @@ python scripts/11_compute_embeddings.py \
 3. Recreate Qdrant collections & ingest:
 
 ```bash
-python scripts/12_qdrant_create_collections.py --dim 768
+python scripts/12_qdrant_create_collections.py --dim 1024
 python scripts/13_qdrant_ingest.py \
   --articles data/phase_3/article_vectors.parquet \
   --chunks data/phase_3/chunk_vectors.parquet \
@@ -169,6 +177,7 @@ Artifacts used:
 
 - Canonical articles + chunk parquet
 - Gazetteer (`python scripts/20_build_gazetteer.py`)
+- Roman → Devanagari query vocabulary (`python scripts/21_build_translit_vocab.py`)
 - Core QA query set (`python scripts/19_build_core_query_set.py`)
 - Vector stores + Typesense index + Postgres
 - Raw CSV (`data/raw/articles.csv`) for `Image Featured` links (override via `RAW_ARTICLES_CSV`)
@@ -185,8 +194,8 @@ uvicorn scripts._phase4.hybrid_search_api:app --host 0.0.0.0 --port 8000
 ```json
 {
   "ok": true,
-  "ranker_version": "ranker_v1",
-  "retrieval_version": "retrieval_v1"
+  "ranker_version": "ranker_v2",
+  "retrieval_version": "retrieval_v2"
 }
 ```
 
@@ -196,8 +205,10 @@ Request:
 {
   "query": "महिला सशक्तिकरण",
   "per_page": 10,
-  "filter_by": "locations_norm:=[bihar]",
-  "explain": true
+  "filter_by": "locations_norm:=[बिहार]",
+  "explain": true,
+  "log": true,
+  "ranker": null
 }
 ```
 Response:
@@ -231,7 +242,9 @@ Response:
 }
 ```
 Notes:
-- `mode` is `dev` (Devanagari) or `roman`.
+- `mode` is `dev` (Devanagari), `roman`, or `mixed`.
+- `log=false` skips Postgres logging (used by the evaluation script; `query_id` is then 0).
+- `ranker` overrides `RANKER_VERSION` for one request (`ranker_v1` | `ranker_v2`).
 - `image_url` comes from the `Image Featured` column in the raw CSV.
 - Setting `explain=true` includes `features` and `explanation` arrays; omit to reduce payload size.
 
@@ -257,6 +270,17 @@ Used when *no* result is relevant:
 
 All writes land in Postgres via `scripts/_phase4/db.py`.
 
+### How a search runs
+
+1. **Canonicalize**: detect script (`dev` / `roman` / `mixed`), drop stopwords, turn Latin tokens into match keys.
+2. **Entities** (`_phase4/query_entities.py`): match locations/contributors/categories/tags from the gazetteer as whole-word phrases, in Devanagari or romanized form.
+   - Hard filter (Typesense `filter_by` + Qdrant restriction) only for specific locations and multi-word author names.
+   - Locations tagged on >20% of articles (e.g. भारत) and single-word names only boost ranking.
+   - Tags and categories always only boost.
+3. **Semantic query**: raw query minus hard-matched entity words. Romanized Hindi is converted to Devanagari via the corpus vocabulary; English queries are embedded as typed. Embedded once for both Qdrant searches.
+4. **Retrieve**: Typesense (top 80), Qdrant articles (top 40), Qdrant chunks (top 80).
+5. **Rank** (`_phase4/ranker_v2.py`): reciprocal rank fusion of the three lists plus per-article entity-match, and recency boosts. Weights come from `data/phase_4/ranker_v2_weights.json` when present (see Phase 6), else defaults. `ranker_v1` (min-max score blend) is kept for comparison.
+
 CLI client:
 
 ```bash
@@ -277,6 +301,48 @@ Run it alongside the API (default `SEARCH_API_BASE=http://localhost:8000`):
 
 ```bash
 uvicorn scripts._phase5.feedback_ui:app --host 0.0.0.0 --port 8500
+```
+
+---
+
+## Phase 6 — Measure and tune
+
+Evaluate against the labels collected in the feedback UI (replays every labelled query with `log=false`; also snapshots the core query set from `scripts/19_build_core_query_set.py`):
+
+```bash
+python scripts/23_evaluate_search.py --save runs/baseline.json
+# ...change something, restart the API...
+python scripts/23_evaluate_search.py --save runs/new.json --compare runs/baseline.json
+python scripts/23_evaluate_search.py --ranker ranker_v1   # A/B rankers on the same server
+```
+
+Reports nDCG@10, MRR, recall@50, known-wrong results in the top 10, and label coverage, split by query mode. Unlabelled results count as not relevant, so compare runs rather than reading absolute numbers.
+
+Learn ranker weights once there are a few hundred labels on `ranker_v2` queries (writes the weights only if they beat the defaults on held-out queries):
+
+```bash
+python scripts/22_train_ranker.py
+```
+
+Faster CPU query encoding (optional). Export on a machine with ~6 GB free RAM, copy `models/` to the API host, then set `EMBED_BACKEND=onnx` in `.env`. The script prints how closely int8 query vectors match the original model; confirm with `23_evaluate_search.py` before switching.
+
+```bash
+python scripts/25_export_onnx_query_encoder.py --config avx2
+```
+
+### Upgrading an existing deployment to retrieval_v2
+
+Vectors in Qdrant are unchanged; Typesense, the gazetteer and the new vocabulary need rebuilding:
+
+```bash
+python scripts/23_evaluate_search.py --save runs/before.json   # against the currently deployed API
+python scripts/20_build_gazetteer.py
+python scripts/21_build_translit_vocab.py
+python scripts/05_typesense_create_collection.py                # drops + recreates the collection
+python scripts/06_typesense_ingest.py --input data/final/articles_canonical.parquet
+python scripts/24_typesense_synonyms.py
+# restart the API (RANKER_VERSION=ranker_v2, RETRIEVAL_VERSION=retrieval_v2 in .env)
+python scripts/23_evaluate_search.py --save runs/after.json --compare runs/before.json
 ```
 
 ---

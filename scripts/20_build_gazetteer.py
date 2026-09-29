@@ -1,27 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from utils import Paths, ensure_dir, read_parquet, write_json, is_nullish
+from utils import Paths, ensure_dir, read_parquet, write_json, is_nullish, text_to_key_variants
 
 
-def roman_norm(s: str) -> str:
+def match_text(value: str) -> str:
     """
-    Minimal roman normalizer (fast, safe). Not transliteration.
-    Used only to match roman queries against metadata strings that are already roman-ish.
+    Text a query has to contain to match this value. Hierarchical categories like
+    "क्षेत्र>कृषि" match on their leaf ("कृषि").
     """
-    t = (s or "").strip().lower()
-    t = re.sub(r"\s+", " ", t)
-    # vowel collapse: karoonga/karunga -> karoonga-ish similarity
-    t = re.sub(r"aa+", "aa", t)
-    t = re.sub(r"ee+", "ee", t)
-    t = re.sub(r"ii+", "ii", t)
-    t = re.sub(r"oo+", "oo", t)
-    t = re.sub(r"uu+", "uu", t)
-    return t
+    return value.split(">")[-1].strip()
 
 
 def collect_unique(df, col: str) -> List[str]:
@@ -60,19 +51,30 @@ def main() -> None:
 
     df = read_parquet(Path(args.input).resolve())
 
-    gaz: Dict[str, Any] = {}
+    gaz: Dict[str, Any] = {"corpus_size": int(len(df))}
     for field in ["locations_norm", "categories_norm", "tags_norm", "contributors_norm"]:
         items = collect_unique(df, field)
+        doc_count: Dict[str, int] = {}
+        for v in df[field].tolist() if field in df.columns else []:
+            if is_nullish(v):
+                continue
+            for item in set(str(x).strip() for x in list(v) if not is_nullish(x)):
+                doc_count[item] = doc_count.get(item, 0) + 1
         gaz[field] = {
             "values": items,
-            "values_roman_norm": [roman_norm(x) for x in items],
+            "match_text": [match_text(x) for x in items],
+            # Phonetic match keys (with/without schwa deletion) so Roman and Devanagari
+            # queries both match: "bihar" / "बिहार" -> "bihar"
+            "keys": [text_to_key_variants(match_text(x)) for x in items],
+            "doc_count": [doc_count.get(x, 0) for x in items],
         }
 
     out_path = Path(args.out).resolve()
     write_json(out_path, gaz)
     print(f"Wrote: {out_path}")
-    for k in gaz:
-        print(k, "count:", len(gaz[k]["values"]))
+    for k, v in gaz.items():
+        if isinstance(v, dict):
+            print(k, "count:", len(v["values"]))
 
 
 if __name__ == "__main__":

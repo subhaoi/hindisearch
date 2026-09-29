@@ -37,7 +37,7 @@ def recreate_collection(client: QdrantClient, name: str, dim: int) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="Project root")
-    ap.add_argument("--dim", type=int, default=768)
+    ap.add_argument("--dim", type=int, default=1024, help="multilingual-e5-large -> 1024")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()

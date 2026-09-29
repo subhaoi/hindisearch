@@ -18,8 +18,12 @@ from qdrant_client.http import models as qm
 from sentence_transformers import SentenceTransformer
 
 # IMPORTANT: script-mode imports (python scripts/..). Do NOT use scripts.utils or relative imports.
-from scripts.utils import Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text
+from scripts.utils import (
+    Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text,
+    clean_title, query_tokens, roman_query_to_devanagari,
+)
 from .ranker_v1 import ranker_v1
+from .ranker_v2 import ranker_v2, load_weights
 from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
 from .query_entities import detect_entities
 
@@ -29,8 +33,9 @@ load_dotenv()
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", "8000"))
 
-RANKER_VERSION = os.environ.get("RANKER_VERSION", "ranker_v1")
-RETRIEVAL_VERSION = os.environ.get("RETRIEVAL_VERSION", "retrieval_v1")
+RANKER_VERSION = os.environ.get("RANKER_VERSION", "ranker_v2")
+RETRIEVAL_VERSION = os.environ.get("RETRIEVAL_VERSION", "retrieval_v2")
+RANKERS = {"ranker_v1", "ranker_v2"}
 
 LEXICAL_TOPK = int(os.environ.get("LEXICAL_TOPK", "80"))
 SEM_ARTICLE_TOPK = int(os.environ.get("SEM_ARTICLE_TOPK", "40"))
@@ -48,6 +53,11 @@ QCOL_CHK = os.environ.get("QDRANT_COLLECTION_CHUNKS", "idr_chunks_vec_v1")
 RAW_ARTICLES_CSV = os.environ.get("RAW_ARTICLES_CSV", "data/raw/articles.csv")
 
 MODEL_NAME = "intfloat/multilingual-e5-large"
+# torch (default) | onnx. For onnx, point EMBED_ONNX_DIR/EMBED_ONNX_FILE at the output of
+# scripts/25_export_onnx_query_encoder.py.
+EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "torch").strip().lower()
+EMBED_ONNX_DIR = os.environ.get("EMBED_ONNX_DIR", "models/e5-large-onnx")
+EMBED_ONNX_FILE = os.environ.get("EMBED_ONNX_FILE", "onnx/model_qint8_avx2.onnx")
 
 
 def get_typesense_client() -> typesense.Client:
@@ -70,10 +80,20 @@ def get_qdrant_client() -> QdrantClient:
     return QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 
+def load_query_encoder() -> SentenceTransformer:
+    if EMBED_BACKEND == "onnx":
+        return SentenceTransformer(
+            str(resolve_project_path(EMBED_ONNX_DIR)),
+            backend="onnx",
+            model_kwargs={"file_name": EMBED_ONNX_FILE},
+        )
+    return SentenceTransformer(MODEL_NAME)
+
+
 def tokenize_query(q: str) -> List[str]:
-    # Stable token split: Latin words + Devanagari words, ignore 1-char noise.
+    # Stable token split: Latin words + Devanagari words, ignore 1-char noise. (ranker_v1 only)
     q2 = (q or "").lower()
-    toks = re.split(r"[^\w\u0900-\u097F]+", q2, flags=re.UNICODE)
+    toks = re.split(r"[^\wऀ-ॿ]+", q2, flags=re.UNICODE)
     return [t for t in toks if t and len(t) >= 2]
 
 
@@ -123,6 +143,18 @@ if not GAZ_PATH.exists():
 
 with GAZ_PATH.open("r", encoding="utf-8") as f:
     gazetteer = json.load(f)
+if "keys" not in (gazetteer.get("locations_norm") or {}):
+    raise RuntimeError(f"{GAZ_PATH} is from the old format. Re-run: python scripts/20_build_gazetteer.py")
+
+# Roman -> Devanagari vocabulary for semantic queries (optional; built by 21_build_translit_vocab.py)
+TRANSLIT_VOCAB_PATH = paths.data / "phase_45" / "translit_vocab_v1.json"
+translit_vocab: Dict[str, str] = {}
+if TRANSLIT_VOCAB_PATH.exists():
+    with TRANSLIT_VOCAB_PATH.open("r", encoding="utf-8") as f:
+        translit_vocab = json.load(f).get("vocab", {})
+else:
+    print(f"WARNING: {TRANSLIT_VOCAB_PATH} missing; roman queries will be embedded as typed. "
+          "Run: python scripts/21_build_translit_vocab.py")
 
 ARTICLES_PATH = paths.data / "final" / "articles_canonical.parquet"
 CHUNKS_PATH = paths.data / "phase_3" / "chunks.parquet"
@@ -168,7 +200,7 @@ for _, r in articles_df.iterrows():
     articles_meta[aid] = {
         "id": aid,
         "url": None if is_nullish(r.get("url")) else str(r.get("url")),
-        "title": None if is_nullish(r.get("title_hi")) else str(r.get("title_hi")),
+        "title": clean_title(r.get("title_hi")) or None,
         "summary": None if is_nullish(r.get("summary_hi")) else str(r.get("summary_hi")),
         "published_date": None if is_nullish(r.get("published_date")) else str(r.get("published_date")),
         "published_ts": int(r.get("published_ts"))
@@ -196,7 +228,8 @@ app = FastAPI(title="IDR Hybrid Search API (Phase 5)")
 
 ts = get_typesense_client()
 qd = get_qdrant_client()
-model = SentenceTransformer(MODEL_NAME)
+model = load_query_encoder()
+ranker_v2_weights = load_weights()
 
 engine = get_engine()
 ensure_schema(engine)
@@ -208,6 +241,9 @@ class SearchRequest(BaseModel):
     per_page: int = 10
     page: int = 1
     explain: bool = False
+    # Evaluation hooks: skip Postgres logging / pick a ranker for this request only
+    log: bool = True
+    ranker: Optional[str] = None
 
 
 class SearchHit(BaseModel):
@@ -258,45 +294,50 @@ class QueryLabelRequest(BaseModel):
     note: Optional[str] = None
 
 
-def get_author_article_ids(contributor_names: List[str]) -> List[str]:
-    name_set = {n.strip().lower() for n in contributor_names if n}
+def get_article_ids_with(field: str, values: List[str]) -> List[str]:
+    wanted = {v.strip().lower() for v in values if v}
     return [
         aid for aid, meta in articles_meta.items()
-        if any(c.strip().lower() in name_set for c in (meta.get("contributors_norm") or []))
+        if any(x.strip().lower() in wanted for x in (meta.get(field) or []))
     ]
 
 
-def get_location_article_ids(location_names: List[str], cap: int = 500) -> List[str]:
-    name_set = {n.strip().lower() for n in location_names if n}
-    ids = [
-        aid for aid, meta in articles_meta.items()
-        if any(c.strip().lower() in name_set for c in (meta.get("locations_norm") or []))
-    ]
-    return ids[:cap]
-
-
-def strip_entities_from_semantic_query(query: str, entity_values: List[str]) -> str:
-    result = query
-    for name in entity_values:
-        result = re.sub(re.escape(name.strip()), "", result, flags=re.IGNORECASE)
-    result = re.sub(r"\s+", " ", result).strip()
-    # Fall back to original if stripping removes everything
-    return result if result else query
+def build_semantic_query(raw_query: str, mode: str, strip_tokens: List[str]) -> str:
+    """
+    Text to embed: the raw query minus hard-matched entity words (the Qdrant filter already
+    handles those), with romanized Hindi converted to Devanagari so it lands in the same
+    space as the (Devanagari) article vectors.
+    """
+    q = raw_query.strip()
+    if strip_tokens:
+        drop = set(strip_tokens)
+        kept = [t for t in query_tokens(q) if t not in drop]
+        if kept:  # fall back to the original if stripping removes everything
+            q = " ".join(kept)
+    if mode in ("roman", "mixed"):
+        dev = roman_query_to_devanagari(q, translit_vocab)
+        if dev:
+            q = dev
+    return q
 
 
 def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
-    # query_used is already canonicalized; mode determines which indexed fields to use
+    # query_used is canonicalized: Devanagari tokens as-is, Latin tokens as match keys.
+    # Metadata (contributors/locations_norm) is Devanagari; *_key fields hold its match keys.
     if mode == "dev":
-        # contributors_norm and locations_norm store Roman text, so they won't
-        # match Devanagari queries — entity detection handles dev-mode filtering instead.
-        query_by = "title_hi,summary_hi,content_hi"
-        weights = "6,3,1"
-    elif mode == "mixed":
-        query_by = "title_hi,summary_hi,content_hi,content_mixed_norm,contributors_norm,locations_norm"
-        weights = "6,3,1,1,5,4"
-    else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_norm,locations_norm"
+        query_by = "title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
         weights = "6,3,1,5,4"
+        typos = "1"
+    elif mode == "mixed":
+        query_by = ("title_hi,summary_hi,content_hi,title_roman_norm,summary_roman_norm,"
+                    "content_mixed_norm,contributors_key,locations_key")
+        weights = "6,3,1,6,3,1,5,4"
+        typos = "1"
+    else:
+        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_key,locations_key"
+        weights = "6,3,1,5,4"
+        # Romanized spellings drift more than Devanagari ones
+        typos = "2,2,2,1,1"
 
     params: Dict[str, Any] = {
         "q": query_used,
@@ -304,7 +345,7 @@ def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> Li
         "query_by_weights": weights,
         "per_page": LEXICAL_TOPK,
         "page": 1,
-        "num_typos": 1,
+        "num_typos": typos,
     }
     if filter_by:
         params["filter_by"] = filter_by
@@ -318,17 +359,23 @@ def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> Li
     return out
 
 
-def qdrant_search_articles(query_semantic: str, article_ids: Optional[List[str]] = None) -> List[Tuple[str, float]]:
-    q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
-    qfilter = qm.Filter(must=[qm.FieldCondition(key="article_id", match=qm.MatchAny(any=article_ids))]) if article_ids else None
-    res = qd.search(collection_name=QCOL_ART, query_vector=q_vec, limit=SEM_ARTICLE_TOPK, with_payload=False, query_filter=qfilter)
+def encode_query(query_semantic: str) -> List[float]:
+    return model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
+
+
+def _article_filter(article_ids: Optional[List[str]]) -> Optional[qm.Filter]:
+    if not article_ids:
+        return None
+    return qm.Filter(must=[qm.FieldCondition(key="article_id", match=qm.MatchAny(any=article_ids))])
+
+
+def qdrant_search_articles(q_vec: List[float], article_ids: Optional[List[str]] = None) -> List[Tuple[str, float]]:
+    res = qd.search(collection_name=QCOL_ART, query_vector=q_vec, limit=SEM_ARTICLE_TOPK, with_payload=False, query_filter=_article_filter(article_ids))
     return [(str(p.id), float(p.score)) for p in res]
 
 
-def qdrant_search_chunks(query_semantic: str, article_ids: Optional[List[str]] = None) -> List[Tuple[str, str, float]]:
-    q_vec = model.encode([e5_prefix_text(query_semantic, "query")], normalize_embeddings=True)[0].tolist()
-    qfilter = qm.Filter(must=[qm.FieldCondition(key="article_id", match=qm.MatchAny(any=article_ids))]) if article_ids else None
-    res = qd.search(collection_name=QCOL_CHK, query_vector=q_vec, limit=SEM_CHUNK_TOPK, with_payload=True, query_filter=qfilter)
+def qdrant_search_chunks(q_vec: List[float], article_ids: Optional[List[str]] = None) -> List[Tuple[str, str, float]]:
+    res = qd.search(collection_name=QCOL_CHK, query_vector=q_vec, limit=SEM_CHUNK_TOPK, with_payload=True, query_filter=_article_filter(article_ids))
     out: List[Tuple[str, str, float]] = []
     for p in res:
         payload = p.payload or {}
@@ -348,19 +395,27 @@ def build_candidates(
 ) -> List[Dict[str, Any]]:
     cand: Dict[str, Dict[str, Any]] = {}
 
-    for x in lex_hits:
+    # Inputs arrive best-first, so the first time an article is seen gives its rank.
+    for rank, x in enumerate(lex_hits, start=1):
         aid = x["article_id"]
         c = cand.setdefault(aid, {})
         c["lexical_score"] = max(float(c.get("lexical_score", 0.0)), float(x.get("lexical_score", 0.0)))
+        c.setdefault("lex_rank", rank)
         c["src_lexical"] = True
 
-    for aid, s in sem_art:
+    for rank, (aid, s) in enumerate(sem_art, start=1):
         c = cand.setdefault(aid, {})
         c["sem_article"] = max(float(c.get("sem_article", 0.0)), float(s))
+        c.setdefault("sem_article_rank", rank)
         c["src_sem_article"] = True
 
+    # Chunk rank is per article: rank among distinct articles by their best chunk
+    chunk_article_rank = 0
     for cid, aid, s in sem_chk:
         c = cand.setdefault(aid, {})
+        if "sem_chunk_rank" not in c:
+            chunk_article_rank += 1
+            c["sem_chunk_rank"] = chunk_article_rank
         best = float(c.get("sem_chunk", 0.0))
         if float(s) > best:
             c["sem_chunk"] = float(s)
@@ -392,15 +447,16 @@ def build_candidates(
                 "lexical_score": float(c.get("lexical_score", 0.0)),
                 "sem_article": float(c.get("sem_article", 0.0)),
                 "sem_chunk": float(c.get("sem_chunk", 0.0)),
+                "lex_rank": c.get("lex_rank"),
+                "sem_article_rank": c.get("sem_article_rank"),
+                "sem_chunk_rank": c.get("sem_chunk_rank"),
                 "best_chunk_id": c.get("best_chunk_id"),
                 "entity_conf": entity_conf or {},
             }
         )
 
-    out.sort(
-        key=lambda z: (z.get("lexical_score", 0.0) + z.get("sem_chunk", 0.0) + z.get("sem_article", 0.0)),
-        reverse=True,
-    )
+    # Keep the best-ranked articles from any retriever when capping
+    out.sort(key=lambda z: min(z.get("lex_rank") or 10**6, z.get("sem_chunk_rank") or 10**6, z.get("sem_article_rank") or 10**6))
     return out[:CANDIDATE_CAP]
 
 
@@ -424,57 +480,53 @@ def health() -> Dict[str, Any]:
 def search(req: SearchRequest) -> SearchResponse:
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="Empty query")
+    ranker_version = req.ranker or RANKER_VERSION
+    if ranker_version not in RANKERS:
+        raise HTTPException(status_code=400, detail=f"ranker must be one of {sorted(RANKERS)}")
 
     canon = canonicalize_query_for_search(req.query)
     mode = canon["mode"]
     query_used = canon["q"]  # lexical/canonicalized
-    query_semantic = req.query.strip()  # semantic uses raw
 
-    entity = detect_entities(query_used=query_used, mode=mode, gazetteer=gazetteer)
+    entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
+    hard = entity.get("hard", {})
 
     filter_final = req.filter_by
     auto_f = entity.get("filter_by_auto")
     if auto_f:
         filter_final = f"({filter_final}) && ({auto_f})" if filter_final else auto_f
 
-    detected_contributors = entity.get("matches", {}).get("contributors_norm") or []
-    detected_locations = entity.get("matches", {}).get("locations_norm") or []
-    contrib_conf = entity.get("confidence", {}).get("contributors_norm", 0)
-    loc_conf = entity.get("confidence", {}).get("locations_norm", 0)
+    hard_contributors = hard.get("contributors_norm") or []
+    hard_locations = hard.get("locations_norm") or []
+    has_author_entity = bool(hard_contributors)
+    has_location_entity = bool(hard_locations)
 
-    has_author_entity = bool(detected_contributors)
-    has_location_entity = bool(detected_locations)
-
-    # Qdrant filter: contributor takes priority (more specific than location).
-    # Only apply location filter when no contributor detected.
+    # Restrict Qdrant to the same articles the Typesense filter allows.
     qdrant_article_ids: Optional[List[str]] = None
-    if has_author_entity:
-        ids = get_author_article_ids(detected_contributors)
-        qdrant_article_ids = ids if ids else None
-    elif has_location_entity:
-        ids = get_location_article_ids(detected_locations)
-        qdrant_article_ids = ids if ids else None
+    if has_author_entity or has_location_entity:
+        ids: Optional[set] = None
+        if has_author_entity:
+            ids = set(get_article_ids_with("contributors_norm", hard_contributors))
+        if has_location_entity:
+            loc_ids = set(get_article_ids_with("locations_norm", hard_locations))
+            ids = loc_ids if ids is None else (ids & loc_ids) or ids
+        qdrant_article_ids = sorted(ids) if ids else None
 
-    # Strip detected entity names from the semantic query so the embedding focuses
-    # on the topic. Only strip on phrase-match confidence (>=2) to avoid stripping
-    # false positives. Guard: fall back to original if nothing remains after stripping.
-    entities_to_strip: List[str] = []
-    if contrib_conf >= 2:
-        entities_to_strip.extend(detected_contributors)
-    if loc_conf >= 2:
-        entities_to_strip.extend(detected_locations)
-    if entities_to_strip:
-        query_semantic = strip_entities_from_semantic_query(query_semantic, entities_to_strip)
+    query_semantic = build_semantic_query(req.query, mode, entity.get("strip_tokens") or [])
 
     lex = typesense_search(query_used=query_used, mode=mode, filter_by=filter_final)
-    sem_a = qdrant_search_articles(query_semantic=query_semantic, article_ids=qdrant_article_ids)
-    sem_c = qdrant_search_chunks(query_semantic=query_semantic, article_ids=qdrant_article_ids)
+    q_vec = encode_query(query_semantic)
+    sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
+    sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)
 
     candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
 
-    q_tokens = tokenize_query(query_used)
     now_ts = int(time.time())
-    ranked = ranker_v1(candidates, q_tokens, now_ts=now_ts, has_author_entity=has_author_entity, has_location_entity=has_location_entity)
+    if ranker_version == "ranker_v1":
+        ranked = ranker_v1(candidates, tokenize_query(query_used), now_ts=now_ts,
+                           has_author_entity=has_author_entity, has_location_entity=has_location_entity)
+    else:
+        ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=ranker_v2_weights)
 
     per_page = max(1, int(req.per_page))
     page = max(1, int(req.page))
@@ -510,54 +562,57 @@ def search(req: SearchRequest) -> SearchResponse:
             )
         )
 
-    qid = insert_query(
-        engine=engine,
-        query_raw=req.query,
-        query_mode=mode,
-        query_used=query_used,
-        query_semantic=query_semantic,
-        filters={"filter_by": req.filter_by} if req.filter_by else None,
-        ranker_version=RANKER_VERSION,
-        retrieval_version=RETRIEVAL_VERSION,
-        meta={
-            "lex_n": len(lex),
-            "sem_article_n": len(sem_a),
-            "sem_chunk_n": len(sem_c),
-            "cand_n": len(candidates),
-            "entity_matches": entity.get("matches", {}),
-            "entity_confidence": entity.get("confidence", {}),
-            "filter_by_auto": entity.get("filter_by_auto"),
-            "filter_by_final": filter_final,
-            "has_author_entity": has_author_entity,
-            "has_location_entity": has_location_entity,
-            "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
-            "query_semantic_used": query_semantic,
-        },
-    )
-
-    topn = min(LOG_CANDIDATES_TOPN, len(ranked))
-    to_log: List[Dict[str, Any]] = []
-    for item in ranked[:topn]:
-        to_log.append(
-            {
-                "rank": item["rank"],
-                "article_id": item["article_id"],
-                "url": item.get("url"),
-                "title": item.get("title"),
-                "published_date": item.get("published_date"),
-                "summary": item.get("summary"),
-                "primary_category": item.get("primary_category"),
-                "categories": item.get("categories") or [],
-                "tags": item.get("tags") or [],
-                "location": item.get("location") or [],
-                "partner_label": item.get("partner_label"),
-                "contributors": item.get("contributors") or [],
-                "score": float(item["score"]),
-                "features": item["features"],
-                "explanation": item.get("explanation"),
-            }
+    qid = 0
+    if req.log:
+        qid = insert_query(
+            engine=engine,
+            query_raw=req.query,
+            query_mode=mode,
+            query_used=query_used,
+            query_semantic=query_semantic,
+            filters={"filter_by": req.filter_by} if req.filter_by else None,
+            ranker_version=ranker_version,
+            retrieval_version=RETRIEVAL_VERSION,
+            meta={
+                "lex_n": len(lex),
+                "sem_article_n": len(sem_a),
+                "sem_chunk_n": len(sem_c),
+                "cand_n": len(candidates),
+                "entity_matches": entity.get("matches", {}),
+                "entity_hard": hard,
+                "entity_confidence": entity.get("confidence", {}),
+                "filter_by_auto": entity.get("filter_by_auto"),
+                "filter_by_final": filter_final,
+                "has_author_entity": has_author_entity,
+                "has_location_entity": has_location_entity,
+                "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
+                "query_semantic_used": query_semantic,
+            },
         )
-    insert_candidates(engine, qid, to_log)
+
+        topn = min(LOG_CANDIDATES_TOPN, len(ranked))
+        to_log: List[Dict[str, Any]] = []
+        for item in ranked[:topn]:
+            to_log.append(
+                {
+                    "rank": item["rank"],
+                    "article_id": item["article_id"],
+                    "url": item.get("url"),
+                    "title": item.get("title"),
+                    "published_date": item.get("published_date"),
+                    "summary": item.get("summary"),
+                    "primary_category": item.get("primary_category"),
+                    "categories": item.get("categories") or [],
+                    "tags": item.get("tags") or [],
+                    "location": item.get("location") or [],
+                    "partner_label": item.get("partner_label"),
+                    "contributors": item.get("contributors") or [],
+                    "score": float(item["score"]),
+                    "features": item["features"],
+                    "explanation": item.get("explanation"),
+                }
+            )
+        insert_candidates(engine, qid, to_log)
 
     return SearchResponse(
         query_id=qid,

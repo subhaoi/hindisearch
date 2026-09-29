@@ -1,38 +1,19 @@
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set
+
+from scripts.utils import query_tokens, text_to_key, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS
 
 
-def _norm_ws(s: str) -> str:
-    s2 = (s or "").strip().lower()
-    s2 = re.sub(r"\s+", " ", s2)
-    return s2
+ENTITY_FIELDS = ["locations_norm", "contributors_norm", "categories_norm", "tags_norm"]
 
+# Fields whose phrase matches may become hard filters. Tags/categories are incomplete
+# labels, so they only ever boost (see ranker_v2).
+HARD_FILTER_FIELDS = ["locations_norm", "contributors_norm"]
 
-def roman_norm(s: str) -> str:
-    t = _norm_ws(s)
-    t = re.sub(r"aa+", "aa", t)
-    t = re.sub(r"ee+", "ee", t)
-    t = re.sub(r"ii+", "ii", t)
-    t = re.sub(r"oo+", "oo", t)
-    t = re.sub(r"uu+", "uu", t)
-    return t
-
-
-def dev_to_roman(s: str) -> str:
-    try:
-        from indic_transliteration import sanscript
-        from indic_transliteration.sanscript import transliterate
-        return transliterate(str(s), sanscript.DEVANAGARI, sanscript.HK)
-    except Exception:
-        return str(s)
-
-
-def tokenize_loose(q: str) -> List[str]:
-    q2 = _norm_ws(q)
-    toks = re.split(r"[^\w\u0900-\u097F]+", q2, flags=re.UNICODE)
-    return [t for t in toks if t and len(t) >= 2]
+# A location tagged on more than this share of the corpus (e.g. भारत, ~50%) is too broad
+# to filter on; it is used as a ranking boost instead.
+BROAD_LOCATION_SHARE = 0.20
 
 
 def _safe_ts_backtick(s: str) -> str:
@@ -50,140 +31,115 @@ def _build_in_filter(field: str, values: List[str]) -> Optional[str]:
 
 
 def detect_entities(
-    query_used: str,
-    mode: str,
+    query_full: str,
     gazetteer: Dict[str, Any],
     max_per_field: int = 3,
 ) -> Dict[str, Any]:
     """
+    Match the query against gazetteer values (locations, contributors, categories, tags).
+
+    A value matches when its text appears in the query as a whole-word phrase, either
+    literally (Devanagari/Latin) or via phonetic match keys, so "bihar", "बिहार" and
+    "uttar pradesh" all hit the Devanagari metadata. Multi-word names whose words all
+    appear (any order) are weaker "token" matches.
+
     Returns:
       {
-        matches: {field: [values...]},
-        confidence: {field: int},
-        filter_by_auto: str|None
+        matches:         {field: [values...]}     all matches (ranking boosts)
+        phrase_matches:  {field: [values...]}
+        confidence:      {field: int}             +2 per phrase match, +1 per token match
+        hard:            {field: [values...]}     strong matches used to filter
+        filter_by_auto:  str|None                 Typesense filter built from `hard`
+        strip_tokens:    [query tokens]           tokens covered by `hard` matches
       }
-    Confidence heuristic:
-      - phrase substring match => +2
-      - token match => +1
     """
-    q_used = _norm_ws(query_used)
-    q_tokens = tokenize_loose(q_used)
-
-    # For roman/mixed mode, also use roman_norm for matching
-    q_roman = roman_norm(q_used) if mode != "dev" else ""
-    q_roman_from_dev = roman_norm(dev_to_roman(q_used)) if mode == "dev" else ""
+    toks = query_tokens(query_full)
+    tok_keys = [text_to_key(t) for t in toks]
+    q_raw = " " + " ".join(toks) + " "
+    q_key = " " + " ".join(k for k in tok_keys if k) + " "
+    tok_set = set(toks)
+    key_set = {k for k in tok_keys if k}
+    corpus_size = int(gazetteer.get("corpus_size") or 0)
 
     matches: Dict[str, List[str]] = {}
+    phrase_matches: Dict[str, List[str]] = {}
     conf: Dict[str, int] = {}
+    hard: Dict[str, List[str]] = {}
+    strip: Set[int] = set()
 
-    def scan(field: str, allow_token: bool, require_all_tokens: bool = False) -> None:
-        vals = gazetteer.get(field, {}).get("values", []) or []
-        vals_r = gazetteer.get(field, {}).get("values_roman_norm", []) or []
+    for field in ENTITY_FIELDS:
+        g = gazetteer.get(field) or {}
+        values = g.get("values") or []
+        texts = g.get("match_text") or values
+        keys_list = g.get("keys") or [[] for _ in values]
+        counts = g.get("doc_count") or [0 for _ in values]
 
         got: List[str] = []
+        phrase: List[str] = []
+        strong: List[str] = []
         score = 0
 
-        # Phrase match (longest-first ordering already)
-        for i, v in enumerate(vals):
+        for v, mt, keys, dc in zip(values, texts, keys_list, counts):
             if len(got) >= max_per_field:
                 break
-            v_norm = _norm_ws(v)
-            if not v_norm:
+            mt_toks = query_tokens(mt)
+            if not mt_toks:
+                continue
+            mt_norm = " ".join(mt_toks)
+
+            is_phrase = f" {mt_norm} " in q_raw or any(
+                len(k) >= 3 and f" {k} " in q_key for k in keys
+            )
+            if is_phrase:
+                got.append(v)
+                phrase.append(v)
+                score += 2
+
+                if field == "locations_norm":
+                    broad = corpus_size > 0 and dc / corpus_size > BROAD_LOCATION_SHARE
+                    is_strong = not broad
+                elif field == "contributors_norm":
+                    # Single-word names (शांति, रवि) collide with ordinary words
+                    is_strong = len(mt_toks) >= 2
+                else:
+                    is_strong = False
+                if is_strong:
+                    strong.append(v)
+                    val_keys = {kt for k in keys for kt in k.split()}
+                    for i, (t, tk) in enumerate(zip(toks, tok_keys)):
+                        if t in mt_toks or tk in val_keys:
+                            strip.add(i)
                 continue
 
-            if mode == "dev":
-                if v_norm in q_used:
-                    got.append(v)
-                    score += 2
-            else:
-                # roman mode: match either raw (sometimes contributors are latin in metadata)
-                if v_norm in q_used:
-                    got.append(v)
-                    score += 2
-                else:
-                    vr = vals_r[i] if i < len(vals_r) else roman_norm(v_norm)
-                    if vr and (vr in q_roman or vr in q_roman_from_dev):
-                        got.append(v)
-                        score += 2
-
-        # Token match fallback (optional)
-        if allow_token and len(got) < max_per_field:
-            qtok = set(q_tokens)
-            for v in vals:
-                if len(got) >= max_per_field:
-                    break
-                vtok = set(tokenize_loose(v))
-                if not vtok:
-                    continue
-                if require_all_tokens:
-                    # All tokens of the entity name must appear in the query (prevents
-                    # common surname like "singh" alone matching many contributors)
-                    matched = len(vtok) >= 2 and vtok.issubset(qtok)
-                else:
-                    matched = len(qtok.intersection(vtok)) > 0
-                if matched and v not in got:
-                    got.append(v)
-                    score += 1
-
-        # If dev query, try romanized tokens too
-        if allow_token and mode == "dev" and len(got) < max_per_field:
-            qtok = set(tokenize_loose(q_roman_from_dev))
-            for v in vals:
-                if len(got) >= max_per_field:
-                    break
-                vtok = set(tokenize_loose(roman_norm(v)))
-                if not vtok:
-                    continue
-                if require_all_tokens:
-                    matched = len(vtok) >= 2 and vtok.issubset(qtok)
-                else:
-                    matched = len(qtok.intersection(vtok)) > 0
-                if matched and v not in got:
-                    got.append(v)
-                    score += 1
+            # Token fallback: every content word of a multi-word name present, any order
+            # ("jammu kashmir" -> जम्मू और कश्मीर)
+            content = {t for t in mt_toks if t not in HINDI_STOPWORDS}
+            k0 = {k for k in (keys[0].split() if keys else []) if k not in ROMAN_STOPWORD_KEYS}
+            if len(mt_toks) >= 2 and ((len(content) >= 2 and content <= tok_set) or (len(k0) >= 2 and k0 <= key_set)):
+                got.append(v)
+                score += 1
+                broad = corpus_size > 0 and dc / corpus_size > BROAD_LOCATION_SHARE
+                if field == "locations_norm" and not broad:
+                    strong.append(v)
+                    for i, (t, tk) in enumerate(zip(toks, tok_keys)):
+                        if t in content or tk in k0:
+                            strip.add(i)
 
         if got:
             matches[field] = got
             conf[field] = score
+        if phrase:
+            phrase_matches[field] = phrase
+        if strong and field in HARD_FILTER_FIELDS:
+            hard[field] = strong
 
-    # Locations: allow token matching, strong signal
-    scan("locations_norm", allow_token=True)
-    # Contributors: all tokens of the name must appear in query to avoid false positives
-    scan("contributors_norm", allow_token=True, require_all_tokens=True)
-    # Categories/tags: allow token matching but treated as soft unless very confident
-    scan("categories_norm", allow_token=True)
-    scan("tags_norm", allow_token=True)
-
-    # Decide auto filter_by (conservative)
-    filters: List[str] = []
-
-    # Apply location filter if any
-    if matches.get("locations_norm"):
-        f = _build_in_filter("locations_norm", matches["locations_norm"])
-        if f:
-            filters.append(f)
-
-    # Apply contributor filter only if strong (>=2 implies phrase match)
-    if matches.get("contributors_norm") and conf.get("contributors_norm", 0) >= 2:
-        f = _build_in_filter("contributors_norm", matches["contributors_norm"])
-        if f:
-            filters.append(f)
-
-    # Categories/tags: only hard-filter if strong confidence (>=4 means likely multiple phrase hits)
-    if matches.get("categories_norm") and conf.get("categories_norm", 0) >= 4:
-        f = _build_in_filter("categories_norm", matches["categories_norm"])
-        if f:
-            filters.append(f)
-
-    if matches.get("tags_norm") and conf.get("tags_norm", 0) >= 4:
-        f = _build_in_filter("tags_norm", matches["tags_norm"])
-        if f:
-            filters.append(f)
-
-    auto_filter = " && ".join(filters) if filters else None
+    filters = [f for f in (_build_in_filter(fld, hard[fld]) for fld in HARD_FILTER_FIELDS if fld in hard) if f]
 
     return {
         "matches": matches,
+        "phrase_matches": phrase_matches,
         "confidence": conf,
-        "filter_by_auto": auto_filter,
+        "hard": hard,
+        "filter_by_auto": " && ".join(filters) if filters else None,
+        "strip_tokens": [toks[i] for i in sorted(strip)],
     }

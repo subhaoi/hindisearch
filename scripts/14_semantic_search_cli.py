@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from utils import Paths, canonicalize_query_for_search, read_parquet, e5_prefix_text
+import json
+
+from utils import Paths, canonicalize_query_for_search, read_parquet, e5_prefix_text, roman_query_to_devanagari
 
 
 def get_qdrant() -> QdrantClient:
@@ -34,7 +36,13 @@ def main() -> None:
     c_chunks = os.environ.get("QDRANT_COLLECTION_CHUNKS", "idr_chunks_vec_v1")
 
     canon = canonicalize_query_for_search(args.q)
-    q_text = canon["q"]  # dev query or roman_norm query
+    # Embed the query as typed (match keys are for lexical search only); romanized Hindi is
+    # converted to Devanagari when the transliteration vocab exists, as in the hybrid API.
+    q_text = args.q.strip()
+    vocab_path = paths.data / "phase_45" / "translit_vocab_v1.json"
+    if canon["mode"] in ("roman", "mixed") and vocab_path.exists():
+        vocab = json.loads(vocab_path.read_text(encoding="utf-8")).get("vocab", {})
+        q_text = roman_query_to_devanagari(q_text, vocab) or q_text
 
     model_name = "intfloat/multilingual-e5-large"
     model = SentenceTransformer(model_name)
