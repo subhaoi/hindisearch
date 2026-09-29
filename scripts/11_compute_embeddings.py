@@ -141,8 +141,10 @@ def main() -> None:
     for _, r in articles.iterrows():
         aid = str(r.get("id"))
         title = "" if is_nullish(r.get("title_hi")) else str(r.get("title_hi"))
+        seo_title = "" if is_nullish(r.get("seo_title_hi")) else str(r.get("seo_title_hi"))
         summary = "" if is_nullish(r.get("summary_hi")) else str(r.get("summary_hi"))
-        txt = safe_join([title, summary], sep="\n\n").strip()
+        # Headline + SEO title (often names the topic/place) + summary
+        txt = safe_join([title, seo_title, summary], sep="\n\n").strip()
         if not txt:
             txt = title.strip()
 

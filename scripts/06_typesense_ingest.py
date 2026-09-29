@@ -12,7 +12,8 @@ from tqdm import tqdm
 
 from utils import (
     Paths, read_parquet, ensure_dir, write_json,
-    is_nullish, iso_to_epoch_seconds, text_to_key, clean_title
+    is_nullish, iso_to_epoch_seconds, text_to_key, clean_title,
+    fold_devanagari, stem_text, location_patterns, derive_locations,
 )
 
 
@@ -48,6 +49,8 @@ def main() -> None:
     ap.add_argument("--root", default=".", help="Project root")
     ap.add_argument("--batch-size", type=int, default=50)
     ap.add_argument("--prune", action="store_true", help="Delete indexed documents that are no longer in --input")
+    ap.add_argument("--gazetteer", default="data/phase_45/gazetteer_v1.json",
+                    help="Location values + aliases for locations_all (run 20_build_gazetteer.py first)")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -60,6 +63,13 @@ def main() -> None:
     df = read_parquet(Path(args.input).resolve())
     client = get_client()
 
+    gaz_path = Path(args.gazetteer)
+    if not gaz_path.exists():
+        raise SystemExit(f"Missing {gaz_path}. Run: python scripts/20_build_gazetteer.py")
+    gaz_loc = json.loads(gaz_path.read_text(encoding="utf-8"))["locations_norm"]
+    aliases = dict(zip(gaz_loc["values"], gaz_loc.get("aliases") or [[] for _ in gaz_loc["values"]]))
+    loc_patterns = location_patterns(gaz_loc["values"], aliases)
+
     report: Dict[str, Any] = {"rows": len(df), "indexed": 0, "failed": 0, "failures": []}
 
     docs: List[Dict[str, Any]] = []
@@ -68,9 +78,11 @@ def main() -> None:
         published_ts = iso_to_epoch_seconds(published_date)
 
         title_hi = clean_title(row.get("title_hi"))
+        seo_title_hi = clean_title(row.get("seo_title_hi"))
         summary_hi = "" if is_nullish(row.get("summary_hi")) else str(row.get("summary_hi"))
         content_hi = "" if is_nullish(row.get("content_hi")) else str(row.get("content_hi"))
         content_key = text_to_key(content_hi)
+        locations_all = derive_locations(title_hi, summary_hi, content_hi, safe_list(row.get("locations_norm")), loc_patterns)
 
         doc = {
             "id": str(row.get("id")),
@@ -78,23 +90,35 @@ def main() -> None:
             "published_date": published_date,
             "published_ts": published_ts,
 
-            "title_hi": title_hi,
-            "summary_hi": summary_hi,
-            "content_hi": content_hi,
+            # Hindi fields are folded (nukta/chandrabindu) to match folded queries; display text
+            # comes from the parquet, not from Typesense
+            "title_hi": fold_devanagari(title_hi),
+            "seo_title_hi": fold_devanagari(seo_title_hi),
+            "summary_hi": fold_devanagari(summary_hi),
+            "content_hi": fold_devanagari(content_hi),
+
+            "title_stem": stem_text(f"{title_hi} {seo_title_hi}"),
+            "summary_stem": stem_text(summary_hi),
+            "content_stem": stem_text(content_hi),
 
             # Romanized match keys for Roman queries
             "title_roman_norm": text_to_key(title_hi),
+            "seo_title_roman_norm": text_to_key(seo_title_hi),
             "summary_roman_norm": text_to_key(summary_hi),
             "content_roman_norm": content_key,
 
             # Mixed: original + romanized for mixed-script queries
-            "content_mixed_norm": f"{content_hi}\n\n{content_key}".strip(),
+            "content_mixed_norm": f"{fold_devanagari(content_hi)}\n\n{content_key}".strip(),
 
             "categories_norm": safe_list(row.get("categories_norm")),
             "tags_norm": safe_list(row.get("tags_norm")),
             "locations_norm": safe_list(row.get("locations_norm")),
             "contributors_norm": safe_list(row.get("contributors_norm")),
-            "locations_key": [k for k in (text_to_key(x) for x in safe_list(row.get("locations_norm"))) if k],
+            "locations_all": locations_all,
+            # Match keys of every location the article is about, incl. English aliases (delhi, orissa)
+            "locations_key": list(dict.fromkeys(
+                k for loc in locations_all for name in [loc] + aliases.get(loc, []) for k in [text_to_key(name)] if k
+            )),
             "contributors_key": [k for k in (text_to_key(x) for x in safe_list(row.get("contributors_norm"))) if k],
 
             "article_type": None if is_nullish(row.get("article_type")) else str(row.get("article_type")),

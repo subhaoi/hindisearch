@@ -21,6 +21,9 @@ Usage
   python scripts/refresh_weekly.py --skip-fetch    # rebuild from data/raw/exports/*.csv
   python scripts/refresh_weekly.py --force         # rebuild even if the exports are unchanged
   python scripts/refresh_weekly.py --no-restart    # don't restart the API
+  python scripts/refresh_weekly.py --skip-fetch --recreate-typesense
+                                                   # after a Typesense schema change (drops and
+                                                   # rebuilds the collection: ~1 min of degraded search)
 """
 
 from __future__ import annotations
@@ -325,7 +328,7 @@ class RefreshRun:
                 (EXPORTS_DIR / f"{n}.csv").exists() and filecmp.cmp(incoming / f"{n}.csv", EXPORTS_DIR / f"{n}.csv", shallow=False)
                 for n in names
             )
-            if unchanged and not self.args.force and not self.args.skip_fetch:
+            if unchanged and not self.args.force and not self.args.skip_fetch and not self.args.recreate_typesense:
                 self.log("Exports unchanged since the last run; skipping the rebuild")
                 weights_before = WEIGHTS.stat().st_mtime if WEIGHTS.exists() else None
                 self.step("train ranker", self.py("22_train_ranker.py"), fatal=False)
@@ -371,6 +374,8 @@ class RefreshRun:
 
             # 4. Live updates (in place: upsert + prune)
             live_touched = True
+            if self.args.recreate_typesense:
+                self.step("typesense recreate collection", self.py("05_typesense_create_collection.py"))
             self.step("typesense ingest", self.py("06_typesense_ingest.py", "--input", str(CANONICAL), "--prune"))
             self.step("qdrant ingest", self.py("13_qdrant_ingest.py", "--prune"))
             if self.step("typesense synonyms", self.py("24_typesense_synonyms.py"), fatal=False) != 0:
@@ -430,6 +435,8 @@ def main() -> None:
     ap.add_argument("--skip-fetch", action="store_true", help="Rebuild from data/raw/exports/*.csv")
     ap.add_argument("--force", action="store_true", help="Rebuild even if the exports are unchanged")
     ap.add_argument("--no-restart", action="store_true", help="Don't restart the API at the end")
+    ap.add_argument("--recreate-typesense", action="store_true",
+                    help="Drop and recreate the Typesense collection before ingest (needed after schema changes)")
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))

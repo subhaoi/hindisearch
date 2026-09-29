@@ -379,6 +379,24 @@ If a run fails after the live-update step, fix the cause and re-run with `--skip
 
 ---
 
+## Retrieval v3 (search quality step 1)
+
+- **Titles**: the site headline (`Title`) is the title; the Yoast SEO title is kept as `seo_title_hi` (searched, and included in the article vector). Section suffixes like `| हल्का-फुल्का | आईडीआर` are stripped.
+- **Locations**: an article's locations are its tags plus any location named in its title/summary or mentioned 3+ times in the body (`locations_all`). Location filters use this set because tags alone miss many articles (e.g. असम: 20 tagged, 29 with mentions).
+- **English place names**: `config/location_aliases.json` maps delhi/orissa/bengal/kashmir/... to the Hindi values.
+- **Spelling folding**: Hindi fields and queries drop nukta and chandrabindu differences (ज़रूरत = जरूरत, गाँव = गांव).
+- **Stemming**: Hindi queries also run against stemmed fields (`*_stem`), so बच्चा matches बच्चे/बच्चों; exact-form matches are fused ahead.
+
+Deploying it changes the Typesense schema, so the first run must recreate the collection (about a minute of degraded search), and it re-embeds article vectors once because titles changed:
+
+```bash
+python scripts/refresh_weekly.py --skip-fetch --recreate-typesense
+```
+
+Set `RETRIEVAL_VERSION=retrieval_v3` in `.env` so query logs before/after are distinguishable.
+
+---
+
 ## Troubleshooting & tips
 
 - Logs (`logs/*.json`) are designed for quick sanity checks—skim them after each phase.

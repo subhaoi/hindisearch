@@ -54,7 +54,7 @@ def main() -> None:
     # Keep a focused set of columns for downstream
     keep_cols = [
         "id", "published_date", "url",
-        "title_hi", "summary_hi", "content_hi",
+        "title_hi", "seo_title_hi", "summary_hi", "content_hi",
         "categories_raw", "locations_raw", "tags_raw", "contributors_raw",
         "categories_norm", "locations_norm", "tags_norm", "contributors_norm",
         "article_type", "multimedia_type", "partner_label",

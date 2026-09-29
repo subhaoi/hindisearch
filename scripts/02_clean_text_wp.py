@@ -11,13 +11,20 @@ from utils import Paths, read_parquet, write_parquet, write_json, strip_wp_html_
 
 
 def choose_title(row: pd.Series) -> str:
-    yoast = row.get("_yoast_wpseo_title")
+    # The headline readers see on the site; the Yoast SEO title is usually a rewrite
     title = row.get("Title")
-    if not is_nullish(yoast):
-        return clean_title(yoast)
+    yoast = row.get("_yoast_wpseo_title")
     if not is_nullish(title):
         return clean_title(title)
+    if not is_nullish(yoast):
+        return clean_title(yoast)
     return ""
+
+
+def choose_seo_title(row: pd.Series) -> str:
+    # Kept as a separate search field: it often names the topic/place the headline doesn't
+    yoast = row.get("_yoast_wpseo_title")
+    return "" if is_nullish(yoast) else clean_title(yoast)
 
 
 def choose_summary(row: pd.Series, cleaned_content: str) -> str:
@@ -53,6 +60,7 @@ def main() -> None:
     content_clean: List[str] = []
     content_stats: List[Dict[str, Any]] = []
     titles: List[str] = []
+    seo_titles: List[str] = []
     summaries: List[str] = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Cleaning WP HTML"):
@@ -66,6 +74,7 @@ def main() -> None:
 
         # Normalize Hindi text representation
         title_hi = normalize_devanagari_text(title) or ""
+        seo_title_hi = normalize_devanagari_text(choose_seo_title(row)) or ""
         summary_hi = normalize_devanagari_text(summary) or ""
         content_hi = normalize_devanagari_text(cleaned) or ""
 
@@ -94,10 +103,12 @@ def main() -> None:
         content_clean.append(content_hi)
         content_stats.append(stats)
         titles.append(title_hi)
+        seo_titles.append(seo_title_hi if seo_title_hi != title_hi else "")
         summaries.append(summary_hi)
 
     out = df.copy()
     out["title_hi"] = titles
+    out["seo_title_hi"] = seo_titles
     out["summary_hi"] = summaries
     out["content_hi"] = content_clean
 

@@ -133,14 +133,101 @@ def normalize_devanagari_text(s: Optional[str]) -> Optional[str]:
     return s2
 
 
-_TITLE_SITE_SUFFIX_RE = re.compile(r"\s*[|\-–]\s*(आईडीआर|IDR)\s*$", re.IGNORECASE)
+_TITLE_SITE_SUFFIX_RE = re.compile(r"\s*[\-–]\s*(आईडीआर|आईडीआऱ|IDR)\s*$", re.IGNORECASE)
+# Trailing " | ..." segments that are site/section labels, not part of the title
+_TITLE_LABEL_SEGMENTS = {"आईडीआर", "आईडीआऱ", "idr", "हल्का-फुल्का", ""}
 
 
 def clean_title(t: Optional[str]) -> str:
-    """Drop the SEO site suffix most titles carry ("... | आईडीआर")."""
+    """Drop site/section suffixes: "शीर्षक | हल्का-फुल्का | आईडीआर" -> "शीर्षक"."""
     if is_nullish(t):
         return ""
-    return _TITLE_SITE_SUFFIX_RE.sub("", str(t)).strip()
+    parts = [p.strip() for p in str(t).replace("\u200b", "").split("|")]
+    while len(parts) > 1 and parts[-1].lower() in _TITLE_LABEL_SEGMENTS:
+        parts.pop()
+    return _TITLE_SITE_SUFFIX_RE.sub("", " | ".join(parts)).strip()
+
+
+# --------- Devanagari folding + light stemming (lexical matching only) ---------
+
+_NUKTA_PRECOMPOSED = {chr(0x0958 + i): b for i, b in enumerate("कखगजडढफय")}
+
+
+def fold_devanagari(s: str) -> str:
+    """
+    Collapse spelling variants that differ only by nukta or chandrabindu, so
+    ज़रूरत/जरूरत and गाँव/गांव index and match as one word. Lexical fields only.
+    """
+    s = "".join(_NUKTA_PRECOMPOSED.get(ch, ch) for ch in s)
+    return s.replace("\u093c", "").replace("ँ", "ं")
+
+
+# Noun/adjective inflections, longest first (light stemmer after Ramanathan & Rao, 2003)
+_HINDI_SUFFIXES = sorted(
+    ["ियों", "ियां", "ाओं", "ाएं", "ुओं", "ुएं", "ओं", "एं", "ों", "ें", "ां", "ीं", "ी", "े", "ा", "ो", "ि", "ु", "ू"],
+    key=len,
+    reverse=True,
+)
+
+
+def hindi_stem(word: str) -> str:
+    """बच्चा/बच्चे/बच्चों -> बच्च, महिला/महिलाओं/महिलाएं -> महिल. Expects folded text."""
+    for suf in _HINDI_SUFFIXES:
+        if word.endswith(suf) and len(word) - len(suf) >= 2:
+            return word[: -len(suf)]
+    return word
+
+
+def stem_text(text: Optional[str]) -> str:
+    """Folded + stemmed Devanagari tokens (Latin tokens kept as-is), for the *_stem index fields."""
+    if is_nullish(text):
+        return ""
+    return " ".join(
+        hindi_stem(fold_devanagari(t)) if DEVANAGARI_RE.search(t) else t for t in query_tokens(str(text))
+    )
+
+
+# --------- Locations mentioned in an article (tags are incomplete) ---------
+
+def location_patterns(values: List[str], aliases: Dict[str, List[str]]) -> List[Tuple[str, List[str]]]:
+    """[(location value, [folded token strings to look for])] from gazetteer values + aliases."""
+    out: List[Tuple[str, List[str]]] = []
+    for v in values:
+        pats = []
+        for name in [v] + list(aliases.get(v, [])):
+            p = " ".join(fold_devanagari(t) for t in query_tokens(name))
+            if p and p not in pats:
+                pats.append(p)
+        out.append((v, pats))
+    return out
+
+
+def derive_locations(
+    title: Optional[str],
+    summary: Optional[str],
+    content: Optional[str],
+    tagged: List[str],
+    patterns: List[Tuple[str, List[str]]],
+    min_content_mentions: int = 3,
+) -> List[str]:
+    """
+    Tagged locations plus any location named in the title/summary, or at least
+    `min_content_mentions` times in the body. Many articles about a state are only
+    tagged भारत (e.g. 26 untagged articles mention असम 3+ times vs 20 tagged).
+    Two body mentions are often passing references; three or more usually are not.
+    """
+    def norm(t: Optional[str]) -> str:
+        return " " + " ".join(fold_devanagari(x) for x in query_tokens(t or "")) + " "
+
+    head = norm(f"{title or ''} {summary or ''}")
+    body = norm(content)
+    out = list(dict.fromkeys(tagged))
+    for value, pats in patterns:
+        if value in out:
+            continue
+        if any(f" {p} " in head for p in pats) or sum(body.count(f" {p} ") for p in pats) >= min_content_mentions:
+            out.append(value)
+    return out
 
 
 DEVANAGARI_RE = reg.compile(r"\p{Devanagari}")
@@ -469,6 +556,7 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
       mode:   dev | roman | mixed
       q:      lexical query for Typesense. Devanagari tokens stay as-is, Latin tokens become
               match keys (to hit *_roman_norm / *_key fields); stopwords are dropped.
+      q_stem: `q` with Hindi inflections stripped (searched against the *_stem fields).
       q_full: normalized query with every token kept (entity detection uses this).
     """
     raw = "" if is_nullish(raw_query) else str(raw_query)
@@ -482,7 +570,10 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
     toks = query_tokens(normalize_devanagari_text(raw) or raw)
 
     def lexical(tok: str) -> str:
-        return tok if DEVANAGARI_RE.search(tok) else roman_key(tok)
+        return fold_devanagari(tok) if DEVANAGARI_RE.search(tok) else roman_key(tok)
+
+    def stemmed(tok: str) -> str:
+        return hindi_stem(tok) if DEVANAGARI_RE.search(tok) else tok
 
     def is_stop(tok: str) -> bool:
         return tok in HINDI_STOPWORDS if DEVANAGARI_RE.search(tok) else roman_key(tok) in ROMAN_STOPWORD_KEYS
@@ -496,6 +587,8 @@ def canonicalize_query_for_search(raw_query: str) -> dict:
         "raw": raw,
         "mode": mode,
         "q": " ".join(lex),
+        # Same tokens with Hindi inflections stripped, for the *_stem fields
+        "q_stem": " ".join(stemmed(t) for t in lex),
         "q_full": " ".join(toks),
         "roman_norm": text_to_key(raw),
     }

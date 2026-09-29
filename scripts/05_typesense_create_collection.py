@@ -52,6 +52,7 @@ def main() -> None:
 
             # Hindi fields
             {"name": "title_hi", "type": "string", **hi},
+            {"name": "seo_title_hi", "type": "string", "optional": True, **hi},
             {"name": "summary_hi", "type": "string", "optional": True, **hi},
             {"name": "content_hi", "type": "string", "optional": True, **hi},
 
@@ -59,6 +60,13 @@ def main() -> None:
             {"name": "title_roman_norm", "type": "string", "optional": True},
             {"name": "summary_roman_norm", "type": "string", "optional": True},
             {"name": "content_roman_norm", "type": "string", "optional": True},
+
+            {"name": "seo_title_roman_norm", "type": "string", "optional": True},
+
+            # Folded + stemmed Hindi (utils.stem_text) so बच्चा/बच्चे/बच्चों match each other
+            {"name": "title_stem", "type": "string", "optional": True},
+            {"name": "summary_stem", "type": "string", "optional": True},
+            {"name": "content_stem", "type": "string", "optional": True},
 
             # Mixed-script helper field
             {"name": "content_mixed_norm", "type": "string", "optional": True},
@@ -71,6 +79,8 @@ def main() -> None:
             {"name": "categories_norm", "type": "string[]", "facet": True, "optional": True},
             {"name": "tags_norm", "type": "string[]", "facet": True, "optional": True},
             {"name": "locations_norm", "type": "string[]", "facet": True, "optional": True},
+            # Tagged locations + locations named in the text (utils.derive_locations); used for filtering
+            {"name": "locations_all", "type": "string[]", "facet": True, "optional": True},
             {"name": "contributors_norm", "type": "string[]", "facet": True, "optional": True},
 
             {"name": "article_type", "type": "string", "facet": True, "optional": True},

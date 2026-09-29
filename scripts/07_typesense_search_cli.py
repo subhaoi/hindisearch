@@ -48,16 +48,18 @@ def main() -> None:
     q = canon["q"]
 
     # Same field routing as the hybrid API (scripts/_phase4/hybrid_search_api.py)
+    # Exact-form fields as in the hybrid API (the API also runs a stemmed search for Hindi)
     if canon["mode"] == "dev":
-        query_by = "title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
-        weights = "6,3,1,5,4"
+        query_by = "title_hi,seo_title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
+        weights = "6,4,3,1,5,4"
     elif canon["mode"] == "mixed":
-        query_by = ("title_hi,summary_hi,content_hi,title_roman_norm,summary_roman_norm,"
-                    "content_mixed_norm,contributors_key,locations_key")
-        weights = "6,3,1,6,3,1,5,4"
+        query_by = ("title_hi,seo_title_hi,summary_hi,content_hi,title_roman_norm,seo_title_roman_norm,"
+                    "summary_roman_norm,content_mixed_norm,contributors_key,locations_key")
+        weights = "6,4,3,1,6,4,3,1,5,4"
     else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_key,locations_key"
-        weights = "6,3,1,5,4"
+        query_by = ("title_roman_norm,seo_title_roman_norm,summary_roman_norm,content_roman_norm,"
+                    "contributors_key,locations_key")
+        weights = "6,4,3,1,5,4"
 
     search_parameters: Dict[str, Any] = {
         "q": q,

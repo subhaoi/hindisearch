@@ -21,6 +21,7 @@ from sentence_transformers import SentenceTransformer
 from scripts.utils import (
     Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text,
     clean_title, query_tokens, roman_query_to_devanagari, iso_to_epoch_seconds,
+    location_patterns, derive_locations,
 )
 from .ranker_v1 import ranker_v1
 from .ranker_v2 import ranker_v2, load_weights
@@ -185,6 +186,10 @@ def _as_list(v: Any) -> List[str]:
         return [str(v)]
 
 
+_gaz_loc = gazetteer.get("locations_norm") or {}
+location_aliases = dict(zip(_gaz_loc.get("values") or [], _gaz_loc.get("aliases") or [[] for _ in _gaz_loc.get("values") or []]))
+loc_patterns = location_patterns(_gaz_loc.get("values") or [], location_aliases)
+
 articles_meta: Dict[str, Dict[str, Any]] = {}
 
 for _, r in articles_df.iterrows():
@@ -218,6 +223,9 @@ for _, r in articles_df.iterrows():
         "tags_norm": _as_list(r.get("tags_norm")),
         "locations_norm": _as_list(r.get("locations_norm")),
         "contributors_norm": _as_list(r.get("contributors_norm")),
+        # Tagged + mentioned locations; same derivation as the Typesense locations_all field
+        "locations_all": derive_locations(r.get("title_hi"), r.get("summary_hi"), r.get("content_hi"),
+                                          _as_list(r.get("locations_norm")), loc_patterns),
     }
 
 chunks_df = read_parquet(CHUNKS_PATH)
@@ -320,42 +328,60 @@ def build_semantic_query(raw_query: str, mode: str, strip_tokens: List[str]) -> 
     return q
 
 
-def typesense_search(query_used: str, mode: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
-    # query_used is canonicalized: Devanagari tokens as-is, Latin tokens as match keys.
-    # Metadata (contributors/locations_norm) is Devanagari; *_key fields hold its match keys.
+# Fusion constant for merging the exact and stemmed keyword lists
+LEX_FUSE_K = 20
+
+
+def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Keyword retrieval. canon["q"] is canonicalized (folded Devanagari, Latin as match keys).
+    Hindi queries also run a stemmed search (बच्चा also finds बच्चों/बच्चे) in the same
+    request; the two lists are rank-fused so exact-form matches still come first.
+    Metadata (contributors/locations_norm) is Devanagari; *_key fields hold its match keys.
+    """
+    mode = canon["mode"]
     if mode == "dev":
-        query_by = "title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
-        weights = "6,3,1,5,4"
+        query_by = "title_hi,seo_title_hi,summary_hi,content_hi,contributors_norm,locations_norm"
+        weights = "6,4,3,1,5,4"
         typos = "1"
     elif mode == "mixed":
-        query_by = ("title_hi,summary_hi,content_hi,title_roman_norm,summary_roman_norm,"
-                    "content_mixed_norm,contributors_key,locations_key")
-        weights = "6,3,1,6,3,1,5,4"
+        query_by = ("title_hi,seo_title_hi,summary_hi,content_hi,title_roman_norm,seo_title_roman_norm,"
+                    "summary_roman_norm,content_mixed_norm,contributors_key,locations_key")
+        weights = "6,4,3,1,6,4,3,1,5,4"
         typos = "1"
     else:
-        query_by = "title_roman_norm,summary_roman_norm,content_roman_norm,contributors_key,locations_key"
-        weights = "6,3,1,5,4"
+        query_by = ("title_roman_norm,seo_title_roman_norm,summary_roman_norm,content_roman_norm,"
+                    "contributors_key,locations_key")
+        weights = "6,4,3,1,5,4"
         # Romanized spellings drift more than Devanagari ones
-        typos = "2,2,2,1,1"
+        typos = "2,2,2,2,1,1"
 
-    params: Dict[str, Any] = {
-        "q": query_used,
-        "query_by": query_by,
-        "query_by_weights": weights,
-        "per_page": LEXICAL_TOPK,
-        "page": 1,
-        "num_typos": typos,
-    }
-    if filter_by:
-        params["filter_by"] = filter_by
+    def params(q: str, fields: str, w: str, t: str) -> Dict[str, Any]:
+        p: Dict[str, Any] = {
+            "collection": TS_COLLECTION, "q": q, "query_by": fields, "query_by_weights": w,
+            "per_page": LEXICAL_TOPK, "page": 1, "num_typos": t,
+        }
+        if filter_by:
+            p["filter_by"] = filter_by
+        return p
 
-    res = ts.collections[TS_COLLECTION].documents.search(params)
-    hits = res.get("hits", []) or []
-    out: List[Dict[str, Any]] = []
-    for h in hits:
-        doc = h.get("document", {}) or {}
-        out.append({"article_id": str(doc.get("id")), "lexical_score": float(h.get("text_match", 0.0))})
-    return out
+    searches = [params(canon["q"], query_by, weights, typos)]
+    if mode == "dev" and canon.get("q_stem") and canon["q_stem"] != canon["q"]:
+        # Stems are short; typo tolerance on them mostly adds noise
+        searches.append(params(canon["q_stem"], "title_stem,summary_stem,content_stem", "6,3,1", "0"))
+
+    res = ts.multi_search.perform({"searches": searches}, {})
+    fused: Dict[str, float] = {}
+    best_match: Dict[str, float] = {}
+    for r in res.get("results", []):
+        if "error" in r:
+            raise RuntimeError(f"Typesense search failed: {r.get('error')}")
+        for rank, h in enumerate(r.get("hits", []) or [], start=1):
+            aid = str((h.get("document") or {}).get("id"))
+            fused[aid] = fused.get(aid, 0.0) + 1.0 / (LEX_FUSE_K + rank)
+            best_match[aid] = max(best_match.get(aid, 0.0), float(h.get("text_match", 0.0)))
+    ordered = sorted(fused, key=lambda a: fused[a], reverse=True)[:LEXICAL_TOPK]
+    return [{"article_id": a, "lexical_score": best_match[a]} for a in ordered]
 
 
 def encode_query(query_semantic: str) -> List[float]:
@@ -442,6 +468,7 @@ def build_candidates(
                 "categories_norm": m.get("categories_norm") if isinstance(m.get("categories_norm"), list) else [],
                 "tags_norm": m.get("tags_norm") if isinstance(m.get("tags_norm"), list) else [],
                 "locations_norm": m.get("locations_norm") if isinstance(m.get("locations_norm"), list) else [],
+                "locations_all": m.get("locations_all") if isinstance(m.get("locations_all"), list) else [],
                 "contributors_norm": m.get("contributors_norm") if isinstance(m.get("contributors_norm"), list) else [],
                 "lexical_score": float(c.get("lexical_score", 0.0)),
                 "sem_article": float(c.get("sem_article", 0.0)),
@@ -507,13 +534,13 @@ def search(req: SearchRequest) -> SearchResponse:
         if has_author_entity:
             ids = set(get_article_ids_with("contributors_norm", hard_contributors))
         if has_location_entity:
-            loc_ids = set(get_article_ids_with("locations_norm", hard_locations))
+            loc_ids = set(get_article_ids_with("locations_all", hard_locations))
             ids = loc_ids if ids is None else (ids & loc_ids) or ids
         qdrant_article_ids = sorted(ids) if ids else None
 
     query_semantic = build_semantic_query(req.query, mode, entity.get("strip_tokens") or [])
 
-    lex = typesense_search(query_used=query_used, mode=mode, filter_by=filter_final)
+    lex = typesense_search(canon, filter_by=filter_final)
     q_vec = encode_query(query_semantic)
     sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
     sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)

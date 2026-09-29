@@ -9,7 +9,7 @@ from typing import List
 from dotenv import load_dotenv
 import typesense
 
-from utils import Paths, write_json, normalize_devanagari_text, text_to_key, DEVANAGARI_RE
+from utils import Paths, write_json, normalize_devanagari_text, text_to_key, fold_devanagari, DEVANAGARI_RE
 
 SYNONYM_ID_PREFIX = "syn_v1_"
 
@@ -38,7 +38,8 @@ def expand_group(group: List[str]) -> List[str]:
     for term in group:
         forms = [text_to_key(term)]
         if DEVANAGARI_RE.search(term):
-            forms.insert(0, normalize_devanagari_text(term) or term)
+            # Folded like the indexed Hindi fields (ज़/ज, ँ/ं)
+            forms.insert(0, fold_devanagari(normalize_devanagari_text(term) or term))
         for f in forms:
             if f and f not in out:
                 out.append(f)

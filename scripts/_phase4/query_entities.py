@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
-from scripts.utils import query_tokens, text_to_key, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS
+from scripts.utils import query_tokens, text_to_key, fold_devanagari, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS
 
 
 ENTITY_FIELDS = ["locations_norm", "contributors_norm", "categories_norm", "tags_norm"]
@@ -53,7 +53,8 @@ def detect_entities(
         strip_tokens:    [query tokens]           tokens covered by `hard` matches
       }
     """
-    toks = query_tokens(query_full)
+    # Folded so ज़/ज and ँ/ं spellings match the same gazetteer value
+    toks = [fold_devanagari(t) for t in query_tokens(query_full)]
     tok_keys = [text_to_key(t) for t in toks]
     q_raw = " " + " ".join(toks) + " "
     q_key = " " + " ".join(k for k in tok_keys if k) + " "
@@ -82,7 +83,7 @@ def detect_entities(
         for v, mt, keys, dc in zip(values, texts, keys_list, counts):
             if len(got) >= max_per_field:
                 break
-            mt_toks = query_tokens(mt)
+            mt_toks = [fold_devanagari(t) for t in query_tokens(mt)]
             if not mt_toks:
                 continue
             mt_norm = " ".join(mt_toks)
@@ -133,7 +134,9 @@ def detect_entities(
         if strong and field in HARD_FILTER_FIELDS:
             hard[field] = strong
 
-    filters = [f for f in (_build_in_filter(fld, hard[fld]) for fld in HARD_FILTER_FIELDS if fld in hard) if f]
+    # Locations filter on locations_all (tags + mentions in the text); tags alone miss many articles
+    filter_field = {"locations_norm": "locations_all", "contributors_norm": "contributors_norm"}
+    filters = [f for f in (_build_in_filter(filter_field[fld], hard[fld]) for fld in HARD_FILTER_FIELDS if fld in hard) if f]
 
     return {
         "matches": matches,

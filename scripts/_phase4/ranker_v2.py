@@ -71,7 +71,9 @@ def compute_features(c: Dict[str, Any], entity_matches: Dict[str, List[str]], no
         "rrf_lex": rrf(c.get("lex_rank")),
         "rrf_sem_chunk": rrf(c.get("sem_chunk_rank")),
         "rrf_sem_article": rrf(c.get("sem_article_rank")),
-        "match_location": _overlap(c.get("locations_norm") or [], entity_matches.get("locations_norm") or []),
+        # locations_all = tags + locations named in the text (falls back to tags)
+        "match_location": _overlap(c.get("locations_all") or c.get("locations_norm") or [],
+                                   entity_matches.get("locations_norm") or []),
         "match_contributor": _overlap(c.get("contributors_norm") or [], entity_matches.get("contributors_norm") or []),
         "match_category": _overlap(c.get("categories_norm") or [], entity_matches.get("categories_norm") or []),
         "match_tag": _overlap(c.get("tags_norm") or [], entity_matches.get("tags_norm") or []),
