@@ -10,6 +10,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="Path to raw articles.csv")
     ap.add_argument("--root", default=".", help="Project root (default .)")
+    ap.add_argument("--force", action="store_true", help="Re-run every stage even if its output exists")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -22,21 +23,21 @@ def main() -> None:
 
     # 01
     stage1_schema = paths.stage("stage_1") / "schema_validated.parquet"
-    if not stage1_schema.exists():
+    if args.force or not stage1_schema.exists():
         import subprocess, sys
         subprocess.check_call([sys.executable, str(root / "scripts" / "01_load_and_validate.py"),
                                "--input", str(Path(args.input).resolve()), "--root", str(root)])
 
     # 02
     stage2_clean = paths.stage("stage_2") / "text_cleaned.parquet"
-    if not stage2_clean.exists():
+    if args.force or not stage2_clean.exists():
         import subprocess, sys
         subprocess.check_call([sys.executable, str(root / "scripts" / "02_clean_text_wp.py"),
                                "--input", str(stage1_schema), "--root", str(root)])
 
     # 03
     stage3_meta = paths.stage("stage_3") / "metadata_normalized.parquet"
-    if not stage3_meta.exists():
+    if args.force or not stage3_meta.exists():
         import subprocess, sys
         subprocess.check_call([sys.executable, str(root / "scripts" / "03_normalize_metadata.py"),
                                "--input", str(stage2_clean), "--root", str(root)])

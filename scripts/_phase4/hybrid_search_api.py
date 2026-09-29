@@ -20,7 +20,7 @@ from sentence_transformers import SentenceTransformer
 # IMPORTANT: script-mode imports (python scripts/..). Do NOT use scripts.utils or relative imports.
 from scripts.utils import (
     Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text,
-    clean_title, query_tokens, roman_query_to_devanagari,
+    clean_title, query_tokens, roman_query_to_devanagari, iso_to_epoch_seconds,
 )
 from .ranker_v1 import ranker_v1
 from .ranker_v2 import ranker_v2, load_weights
@@ -203,9 +203,8 @@ for _, r in articles_df.iterrows():
         "title": clean_title(r.get("title_hi")) or None,
         "summary": None if is_nullish(r.get("summary_hi")) else str(r.get("summary_hi")),
         "published_date": None if is_nullish(r.get("published_date")) else str(r.get("published_date")),
-        "published_ts": int(r.get("published_ts"))
-        if "published_ts" in articles_df.columns and not is_nullish(r.get("published_ts"))
-        else 0,
+        # The canonical parquet has no published_ts column; derive it for recency ranking
+        "published_ts": iso_to_epoch_seconds(r.get("published_date")),
         "image_url": featured_images.get(aid),
         # display fields
         "primary_category": primary_category,

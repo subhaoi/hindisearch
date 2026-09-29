@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -45,6 +46,44 @@ def embed_texts(model: SentenceTransformer, texts: List[str], batch_size: int) -
     )
 
 
+def text_sha1(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def load_previous_vectors(path: Path, id_col: str, model_name: str) -> Dict[Tuple[str, str], List[float]]:
+    """
+    {(id, sha1 of the exact text embedded): vector} from an earlier run, so unchanged
+    articles/chunks are not re-embedded. Older files without hashes are ignored.
+    """
+    if not path.exists():
+        return {}
+    prev = read_parquet(path)
+    if "text_sha1" not in prev.columns or "model" not in prev.columns:
+        return {}
+    prev = prev[prev["model"] == model_name]
+    return {(str(i), str(h)): v for i, h, v in zip(prev[id_col], prev["text_sha1"], prev["vector"])}
+
+
+def embed_with_reuse(
+    get_model,
+    ids: List[str],
+    texts: List[str],
+    previous: Dict[Tuple[str, str], Any],
+    batch_size: int,
+    label: str,
+) -> Tuple[List[List[float]], List[str], int]:
+    """Returns (vectors, text hashes, number newly embedded)."""
+    hashes = [text_sha1(t) for t in texts]
+    vectors: List[Optional[Any]] = [previous.get((i, h)) for i, h in zip(ids, hashes)]
+    todo = [k for k, v in enumerate(vectors) if v is None]
+    print(f"{label}: {len(texts)} total | reused {len(texts) - len(todo)} | embedding {len(todo)}")
+    if todo:
+        new_vecs = embed_texts(get_model(), [texts[k] for k in todo], batch_size=batch_size)
+        for k, v in zip(todo, new_vecs):
+            vectors[k] = v
+    return [np.asarray(v, dtype=np.float32).tolist() for v in vectors], hashes, len(todo)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="Project root")
@@ -52,6 +91,7 @@ def main() -> None:
     ap.add_argument("--chunks", default="data/phase_3/chunks.parquet", help="Chunks parquet")
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--hard-max-tokens", type=int, default=384, help="Hard cap for E5 (<=512)")
+    ap.add_argument("--no-reuse", action="store_true", help="Re-embed everything instead of reusing unchanged vectors")
     args = ap.parse_args()
 
     if args.hard_max_tokens > 512:
@@ -67,12 +107,23 @@ def main() -> None:
     chunks = read_parquet(Path(args.chunks).resolve())
 
     model_name = "intfloat/multilingual-e5-large"
-    model = SentenceTransformer(model_name)
+    # Load the model only if something actually needs embedding (saves ~2 GB RAM on quiet weeks)
+    _model: Dict[str, SentenceTransformer] = {}
+
+    def get_model() -> SentenceTransformer:
+        if "m" not in _model:
+            _model["m"] = SentenceTransformer(model_name)
+        return _model["m"]
+
+    art_path = paths.data / "phase_3" / "article_vectors.parquet"
+    chk_path = paths.data / "phase_3" / "chunk_vectors.parquet"
+    prev_art = {} if args.no_reuse else load_previous_vectors(art_path, "id", model_name)
+    prev_chk = {} if args.no_reuse else load_previous_vectors(chk_path, "chunk_id", model_name)
     tokenizer = build_tokenizer_for_mpnet()
 
     report: Dict[str, Any] = {
         "model": model_name,
-        "dim": model.get_sentence_embedding_dimension(),
+        "dim": 1024,
         "articles": len(articles),
         "chunks": len(chunks),
         "batch_size": args.batch_size,
@@ -106,8 +157,9 @@ def main() -> None:
         article_texts.append(txt2)
         article_trunc_flags.append(was_trunc)
 
-    print(f"Embedding articles: {len(article_texts)} texts")
-    art_vecs = embed_texts(model, article_texts, batch_size=args.batch_size)
+    art_vecs, art_hashes, report["article_embedded"] = embed_with_reuse(
+        get_model, article_ids, article_texts, prev_art, args.batch_size, "Articles"
+    )
 
     art_out = articles[["id", "url", "published_date"]].copy()
     if "published_ts" in articles.columns:
@@ -115,10 +167,11 @@ def main() -> None:
     else:
         art_out["published_ts"] = 0
 
-    art_out["vector"] = [v.astype(np.float32).tolist() for v in art_vecs]
+    art_out["vector"] = art_vecs
     art_out["was_truncated"] = article_trunc_flags
+    art_out["text_sha1"] = art_hashes
+    art_out["model"] = model_name
 
-    art_path = paths.data / "phase_3" / "article_vectors.parquet"
     write_parquet(art_out, art_path)
 
     # ---- Chunk vectors ----
@@ -138,17 +191,19 @@ def main() -> None:
         chunk_texts.append(txt2)
         chunk_trunc_flags.append(was_trunc)
 
-    print(f"Embedding chunks: {len(chunk_texts)} texts")
-    chk_vecs = embed_texts(model, chunk_texts, batch_size=args.batch_size)
+    chk_vecs, chk_hashes, report["chunk_embedded"] = embed_with_reuse(
+        get_model, chunk_ids, chunk_texts, prev_chk, args.batch_size, "Chunks"
+    )
 
     chk_out = chunks[[
         "chunk_id", "article_id", "chunk_index", "url", "published_date",
         "published_ts", "title_hi", "chunk_tokens"
     ]].copy()
-    chk_out["vector"] = [v.astype(np.float32).tolist() for v in chk_vecs]
+    chk_out["vector"] = chk_vecs
     chk_out["was_truncated"] = chunk_trunc_flags
+    chk_out["text_sha1"] = chk_hashes
+    chk_out["model"] = model_name
 
-    chk_path = paths.data / "phase_3" / "chunk_vectors.parquet"
     write_parquet(chk_out, chk_path)
 
     report["article_vectors_path"] = str(art_path)

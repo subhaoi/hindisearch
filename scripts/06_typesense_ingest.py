@@ -47,6 +47,7 @@ def main() -> None:
     ap.add_argument("--input", required=True, help="Path to data/final/articles_canonical.parquet")
     ap.add_argument("--root", default=".", help="Project root")
     ap.add_argument("--batch-size", type=int, default=50)
+    ap.add_argument("--prune", action="store_true", help="Delete indexed documents that are no longer in --input")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -121,10 +122,22 @@ def main() -> None:
             if len(report["failures"]) < 50:
                 report["failures"].append(f"Batch {i}-{i+len(batch)} failed: {type(e).__name__}: {e}")
 
+    if args.prune:
+        keep = {d["id"] for d in docs}
+        exported = client.collections[collection].documents.export({"include_fields": "id"})
+        stale = [json.loads(l)["id"] for l in str(exported).splitlines() if l.strip()]
+        stale = [i for i in stale if i not in keep]
+        for sid in stale:
+            client.collections[collection].documents[sid].delete()
+        report["pruned"] = len(stale)
+        print(f"Pruned {len(stale)} documents no longer in the input")
+
     out = paths.logs / "phase2_ingest_report.json"
     write_json(out, report)
     print(f"Wrote: {out}")
     print(f"Indexed: {report['indexed']} | Failed: {report['failed']}")
+    if report["failed"]:
+        raise SystemExit(f"{report['failed']} documents failed to index; see {out}")
 
 
 if __name__ == "__main__":

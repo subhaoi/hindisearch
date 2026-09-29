@@ -3,3 +3,5 @@ data/
 *.pyc
 models/
 runs/
+# export URLs carry secret tokens
+config/refresh.json

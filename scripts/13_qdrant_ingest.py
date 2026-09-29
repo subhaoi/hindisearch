@@ -21,6 +21,22 @@ def stable_uint64_from_str(s: str) -> int:
     return struct.unpack(">Q", h[:8])[0]
 
 
+def prune_collection(client: QdrantClient, collection: str, keep_ids: set) -> int:
+    """Delete every point whose id is not in keep_ids. Returns the number deleted."""
+    stale: List[int] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=collection, limit=1000, offset=offset, with_payload=False, with_vectors=False
+        )
+        stale.extend(int(p.id) for p in points if int(p.id) not in keep_ids)
+        if offset is None:
+            break
+    for i in range(0, len(stale), 1000):
+        client.delete(collection_name=collection, points_selector=qm.PointIdsList(points=stale[i:i + 1000]))
+    return len(stale)
+
+
 def get_client() -> QdrantClient:
     load_dotenv()
     host = os.environ.get("QDRANT_HOST", "localhost")
@@ -34,6 +50,7 @@ def main() -> None:
     ap.add_argument("--articles", default="data/phase_3/article_vectors.parquet")
     ap.add_argument("--chunks", default="data/phase_3/chunk_vectors.parquet")
     ap.add_argument("--batch-size", type=int, default=128)
+    ap.add_argument("--prune", action="store_true", help="Delete points that are no longer in the input parquets")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -111,11 +128,20 @@ def main() -> None:
             if len(report["failures"]) < 50:
                 report["failures"].append(f"chunks batch {i}: {type(e).__name__}: {e}")
 
+    if args.prune:
+        keep_articles = {int(str(a)) for a in articles["id"]}
+        keep_chunks = {stable_uint64_from_str(str(c)) for c in chunks["chunk_id"]}
+        report["articles_pruned"] = prune_collection(client, c_articles, keep_articles)
+        report["chunks_pruned"] = prune_collection(client, c_chunks, keep_chunks)
+        print(f"Pruned {report['articles_pruned']} article points, {report['chunks_pruned']} chunk points")
+
     out = paths.logs / "phase3_qdrant_ingest_report.json"
     write_json(out, report)
     print(f"Wrote: {out}")
     print(f"Articles upserted: {report['articles_upserted']}")
     print(f"Chunks upserted: {report['chunks_upserted']}")
+    if report["failures"]:
+        raise SystemExit(f"{len(report['failures'])} batches failed; see {out}")
 
 
 if __name__ == "__main__":

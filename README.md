@@ -347,6 +347,38 @@ python scripts/23_evaluate_search.py --save runs/after.json --compare runs/befor
 
 ---
 
+## Weekly refresh (cron)
+
+`scripts/refresh_weekly.py` keeps the index in sync with the site. Each run:
+
+1. Triggers the three WP All Export jobs, polls until they finish, downloads the CSVs and validates them. A missing column, an unreadable file, or a drop below 90% of last week's rows fails the run before anything is touched.
+2. If nothing changed since last week, skips the rebuild (it still retries ranker training).
+3. Backs up current artifacts to `data/backups/<run_id>/` (keeps the last 4).
+4. Rebuilds offline: concat (carrying `Image Featured` URLs over by ID when an export lacks them), Phase 1, chunking, **incremental** embeddings (only new/changed text is embedded), gazetteer, transliteration vocab. Any failure here restores the backup; live search is untouched.
+5. Updates live indexes in place (upsert + delete removed articles; no collection drops), refreshes synonyms, retrains ranker weights if there are enough labels.
+6. Restarts the API (`restart_cmd`), waits for `/health`, and runs smoke queries.
+
+Setup on the server:
+
+```bash
+cp config/refresh.example.json config/refresh.json   # then fill in export keys/tokens (git-ignored)
+sudo cp deploy/hindisearch-api.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now hindisearch-api
+crontab -e    # paste the line from deploy/crontab.txt
+```
+
+Run it by hand the first time (in `tmux`): the first run embeds everything because earlier vector files have no text hashes.
+
+```bash
+python scripts/refresh_weekly.py            # --skip-fetch / --force / --no-restart
+```
+
+Logs: `logs/refresh/<run_id>.log` (full output), `logs/refresh/last_status.json` (outcome, failed step, article counts), `logs/refresh/history.jsonl`, and cron output in `logs/refresh_cron.log`. Set `alert_webhook_url` in the config (e.g. a Slack incoming webhook) to get a message when a run fails.
+
+If a run fails after the live-update step, fix the cause and re-run with `--skip-fetch`.
+
+---
+
 ## Troubleshooting & tips
 
 - Logs (`logs/*.json`) are designed for quick sanity checks—skim them after each phase.

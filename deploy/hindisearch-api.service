@@ -1,0 +1,22 @@
+# systemd unit for the hybrid search API, so the weekly refresh can restart it.
+# Install:
+#   sudo cp deploy/hindisearch-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hindisearch-api
+# Logs: journalctl -u hindisearch-api -f
+[Unit]
+Description=IDR Hindi hybrid search API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hindisearch
+ExecStart=/home/ubuntu/hindisearch/.venv/bin/uvicorn scripts._phase4.hybrid_search_api:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=10
+# Loading the embedding model takes a while on first start
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

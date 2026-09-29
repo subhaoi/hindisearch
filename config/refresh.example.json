@@ -1,0 +1,45 @@
+{
+  "exports": [
+    {
+      "name": "articles",
+      "export_id": 5,
+      "trigger_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=5&action=trigger",
+      "processing_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=5&action=processing",
+      "file_url": "https://hindi.idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=5&action=get_data"
+    },
+    {
+      "name": "features",
+      "export_id": 6,
+      "trigger_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=6&action=trigger",
+      "processing_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=6&action=processing",
+      "file_url": "https://hindi.idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=6&action=get_data"
+    },
+    {
+      "name": "ground_up",
+      "export_id": 7,
+      "trigger_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=7&action=trigger",
+      "processing_url": "https://hindi.idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=7&action=processing",
+      "file_url": "https://hindi.idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=7&action=get_data"
+    }
+  ],
+  "poll_interval_seconds": 120,
+  "poll_timeout_minutes": 60,
+  "done_patterns": [
+    "complete"
+  ],
+  "min_rows_ratio": 0.9,
+  "chunking": {
+    "max_tokens": 200,
+    "overlap_tokens": 40,
+    "hard_max_tokens": 384
+  },
+  "api_base": "http://localhost:8000",
+  "restart_cmd": "sudo systemctl restart hindisearch-api",
+  "health_timeout_seconds": 600,
+  "smoke_queries": [
+    "महिला सशक्तिकरण",
+    "mahila yojana bihar"
+  ],
+  "keep_backups": 4,
+  "alert_webhook_url": ""
+}
