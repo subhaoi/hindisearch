@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from utils import (
     Paths, read_parquet, write_parquet, write_json,
-    split_pipe_field, normalize_token_list, parse_date_to_iso, is_nullish
+    split_pipe_field, normalize_token_list, parse_date_to_iso, is_nullish, DEVANAGARI_RE
 )
 
 import unicodedata
@@ -39,9 +39,11 @@ def main() -> None:
     }
 
     def clean_token(t: str) -> str:
-        t2 = str(t).strip().casefold()
-        t2 = unicodedata.normalize("NFKD", t2)
-        t2 = "".join(ch for ch in t2 if not unicodedata.combining(ch))
+        t2 = unicodedata.normalize("NFKC", str(t).strip().casefold())
+        # Strip accents from Latin text only: in Devanagari, virama and nukta are combining
+        # marks too, and removing them corrupts names (स्वामी -> सवामी, महाराष्ट्र -> महाराषटर)
+        if not DEVANAGARI_RE.search(t2):
+            t2 = "".join(ch for ch in unicodedata.normalize("NFKD", t2) if not unicodedata.combining(ch))
         return SYNONYMS.get(t2, t2)
 
     def split_and_norm(col: str) -> None:
