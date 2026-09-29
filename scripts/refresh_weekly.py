@@ -111,8 +111,10 @@ class RefreshRun:
         assert proc.stdout is not None
         for line in proc.stdout:
             # tqdm redraws with \r; keep only the final state of each line
-            self._log.write("    " + line.rstrip("\n").split("\r")[-1] + "\n")
-        self._log.flush()
+            text = line.rstrip("\n").split("\r")[-1]
+            self._log.write("    " + text + "\n")
+            self._log.flush()
+            print("    " + text, flush=True)
         rc = proc.wait()
         secs = round(time.time() - t0, 1)
         self.status["steps"].append({"name": name, "rc": rc, "seconds": secs})
@@ -122,7 +124,8 @@ class RefreshRun:
         return rc
 
     def py(self, script: str, *args: str) -> List[str]:
-        return [sys.executable, str(SCRIPTS / script), *args]
+        # -u: unbuffered, so progress reaches the log as it happens, not when the script exits
+        return [sys.executable, "-u", str(SCRIPTS / script), *args]
 
     # ---------- download ----------
 

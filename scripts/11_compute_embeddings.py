@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,7 +43,7 @@ def embed_texts(model: SentenceTransformer, texts: List[str], batch_size: int) -
     return model.encode(
         texts,
         batch_size=batch_size,
-        show_progress_bar=True,
+        show_progress_bar=False,  # embed_with_reuse prints line-based progress (readable in logs)
         normalize_embeddings=True,
     )
 
@@ -64,6 +66,17 @@ def load_previous_vectors(path: Path, id_col: str, model_name: str) -> Dict[Tupl
     return {(str(i), str(h)): v for i, h, v in zip(prev[id_col], prev["text_sha1"], prev["vector"])}
 
 
+CHECKPOINT_BLOCK = 512
+
+
+def load_checkpoint(path: Path, model_name: str) -> Dict[Tuple[str, str], Any]:
+    if not path.exists():
+        return {}
+    ck = read_parquet(path)
+    ck = ck[ck["model"] == model_name]
+    return {(str(i), str(h)): v for i, h, v in zip(ck["id"], ck["text_sha1"], ck["vector"])}
+
+
 def embed_with_reuse(
     get_model,
     ids: List[str],
@@ -71,16 +84,33 @@ def embed_with_reuse(
     previous: Dict[Tuple[str, str], Any],
     batch_size: int,
     label: str,
+    checkpoint: Path,
+    model_name: str,
 ) -> Tuple[List[List[float]], List[str], int]:
-    """Returns (vectors, text hashes, number newly embedded)."""
+    """
+    Returns (vectors, text hashes, number newly embedded). Embeds in blocks and saves a
+    checkpoint after each, so an interrupted run resumes instead of starting over.
+    """
     hashes = [text_sha1(t) for t in texts]
+    previous = {**previous, **load_checkpoint(checkpoint, model_name)}
     vectors: List[Optional[Any]] = [previous.get((i, h)) for i, h in zip(ids, hashes)]
     todo = [k for k, v in enumerate(vectors) if v is None]
-    print(f"{label}: {len(texts)} total | reused {len(texts) - len(todo)} | embedding {len(todo)}")
-    if todo:
-        new_vecs = embed_texts(get_model(), [texts[k] for k in todo], batch_size=batch_size)
-        for k, v in zip(todo, new_vecs):
+    print(f"{label}: {len(texts)} total | reused {len(texts) - len(todo)} | embedding {len(todo)}", flush=True)
+    done: List[int] = []
+    t0 = time.time()
+    for b in range(0, len(todo), CHECKPOINT_BLOCK):
+        block = todo[b:b + CHECKPOINT_BLOCK]
+        new_vecs = embed_texts(get_model(), [texts[k] for k in block], batch_size=batch_size)
+        for k, v in zip(block, new_vecs):
             vectors[k] = v
+        done.extend(block)
+        write_parquet(pd.DataFrame({
+            "id": [ids[k] for k in done], "text_sha1": [hashes[k] for k in done],
+            "vector": [np.asarray(vectors[k], dtype=np.float32).tolist() for k in done], "model": model_name,
+        }), checkpoint)
+        rate = len(done) / max(1e-9, time.time() - t0)
+        left = (len(todo) - len(done)) / rate if rate else 0
+        print(f"{label}: {len(done)}/{len(todo)} embedded | {rate:.2f}/s | about {left / 60:.0f} min left", flush=True)
     return [np.asarray(v, dtype=np.float32).tolist() for v in vectors], hashes, len(todo)
 
 
@@ -112,6 +142,12 @@ def main() -> None:
 
     def get_model() -> SentenceTransformer:
         if "m" not in _model:
+            try:
+                import torch
+                # PyTorch defaults to physical cores; a t3.large's 2 vCPUs are 1 hyperthreaded core
+                torch.set_num_threads(max(1, os.cpu_count() or 1))
+            except ImportError:
+                pass
             _model["m"] = SentenceTransformer(model_name)
         return _model["m"]
 
@@ -160,7 +196,8 @@ def main() -> None:
         article_trunc_flags.append(was_trunc)
 
     art_vecs, art_hashes, report["article_embedded"] = embed_with_reuse(
-        get_model, article_ids, article_texts, prev_art, args.batch_size, "Articles"
+        get_model, article_ids, article_texts, prev_art, args.batch_size, "Articles",
+        paths.data / "phase_3" / ".embed_checkpoint_articles.parquet", model_name,
     )
 
     art_out = articles[["id", "url", "published_date"]].copy()
@@ -194,7 +231,8 @@ def main() -> None:
         chunk_trunc_flags.append(was_trunc)
 
     chk_vecs, chk_hashes, report["chunk_embedded"] = embed_with_reuse(
-        get_model, chunk_ids, chunk_texts, prev_chk, args.batch_size, "Chunks"
+        get_model, chunk_ids, chunk_texts, prev_chk, args.batch_size, "Chunks",
+        paths.data / "phase_3" / ".embed_checkpoint_chunks.parquet", model_name,
     )
 
     chk_out = chunks[[
@@ -212,6 +250,9 @@ def main() -> None:
     report["chunk_vectors_path"] = str(chk_path)
 
     write_json(paths.logs / "phase3_embedding_report.json", report)
+    # Final files are written; checkpoints are no longer needed
+    for ck in (paths.data / "phase_3").glob(".embed_checkpoint_*.parquet"):
+        ck.unlink()
 
     print(f"Wrote: {art_path}")
     print(f"Wrote: {chk_path}")
