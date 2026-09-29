@@ -1,0 +1,55 @@
+{
+  "note": "Series and formats people browse by name. An article belongs to a series if its headline matches title_regex (Devanagari, after nukta/chandrabindu folding), it has one of the categories, or its multimedia_type matches. A query containing a trigger is filtered to that series; the trigger words are removed from the rest of the query. Triggers in Latin letters are compared as phonetic keys, so spelling variants match. Triggers and misspellings come from the search logs.",
+  "series": [
+    {
+      "name": "saral_kosh",
+      "label": "सरल कोश",
+      "title_regex": "सरल[- ]?कोश|शब्दावली|\\d+ शब्द|प्रचलित शब्द",
+      "triggers": ["सरल कोश", "सरलकोश", "सरल-कोश", "सरल शब्दों में", "शब्दावली", "भाषाशब्दावली", "जार्गन", "saral kosh", "saral kodh", "saral kosh idr", "shabdavali", "glossary", "jargon"]
+    },
+    {
+      "name": "photo_essay",
+      "label": "फोटो निबंध",
+      "title_regex": "फोटो निबंध",
+      "triggers": ["फोटो निबंध", "फोटो निंबंध", "फोटो निंबध", "फोटो स्टोरी", "फोटो", "photo story", "photo essay", "photo nibandh", "photo"]
+    },
+    {
+      "name": "halka_fulka",
+      "label": "हल्का-फुल्का",
+      "categories": ["हल्का-फुल्का"],
+      "triggers": ["हल्का-फुल्का", "हल्का फुल्का", "halka-fulka", "halka fulka", "halka pulka", "मीम", "कार्टून", "कारटून", "meme", "memes", "cartoon"]
+    },
+    {
+      "name": "interviews",
+      "label": "आईडीआर इंटरव्यूज",
+      "title_regex": "इंटरव्यू",
+      "categories": ["विशेषताएं>आईडीआर इंटरव्यूज"],
+      "triggers": ["आईडीआर इंटरव्यूज", "इंटरव्यूज", "इंटरव्यू", "साक्षात्कार", "interview", "interviews"]
+    },
+    {
+      "name": "explainers",
+      "label": "आईडीआर से समझिए",
+      "title_regex": "^आईडीआर से समझिए|^आईडीआर एक्सप्लेन्स",
+      "categories": ["विशेषताएं>आईडीआर एक्सप्लेन्स"],
+      "triggers": ["आईडीआर से समझिए", "आईडीआर एक्सप्लेन्स", "idr explains", "idr se samjhiye", "explainer", "explainers"]
+    },
+    {
+      "name": "mera_ek_din",
+      "label": "मेरा एक दिन",
+      "categories": ["विशेषताएं>मेरा एक दिन"],
+      "triggers": ["मेरा एक दिन", "mera ek din", "day in the life"]
+    },
+    {
+      "name": "video",
+      "label": "वीडियो",
+      "multimedia_type": "video",
+      "triggers": ["वीडियो", "विडियो", "विडीओ", "video", "videos"]
+    },
+    {
+      "name": "audio",
+      "label": "ऑडियो",
+      "multimedia_type": "audio",
+      "triggers": ["ऑडियो", "पॉडकास्ट", "audio", "podcast", "podcasts"]
+    }
+  ]
+}

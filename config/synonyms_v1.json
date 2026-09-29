@@ -1,40 +1,518 @@
 {
-  "version": "synonyms_v1",
+  "version": "synonyms_v2",
   "note": "Multi-way synonym groups. Devanagari terms are used as-is; every term is also added as a roman match key (utils.text_to_key), so 'women' and 'mahila' reach the roman fields too. Keep groups tight: every term in a group matches every other.",
   "groups": [
-    ["महिला", "महिलाएं", "महिलाओं", "स्त्री", "औरत", "औरतों", "women", "woman"],
-    ["लड़की", "लड़कियां", "लड़कियों", "बालिका", "girls", "girl"],
-    ["बच्चा", "बच्चे", "बच्चों", "बालक", "children", "child"],
-    ["युवा", "युवाओं", "नौजवान", "youth"],
-    ["शिक्षा", "पढ़ाई", "education"],
-    ["स्कूल", "विद्यालय", "school"],
-    ["शिक्षक", "शिक्षकों", "अध्यापक", "teacher", "teachers"],
-    ["स्वास्थ्य", "सेहत", "health"],
-    ["पोषण", "nutrition"],
-    ["कुपोषण", "malnutrition"],
-    ["स्वच्छता", "सफ़ाई", "सफाई", "sanitation"],
-    ["मासिक धर्म", "माहवारी", "पीरियड्स", "menstruation"],
-    ["किसान", "किसानों", "कृषक", "farmer", "farmers"],
-    ["कृषि", "खेती", "agriculture", "farming"],
-    ["पानी", "जल", "water"],
-    ["जलवायु परिवर्तन", "climate change"],
-    ["आदिवासी", "जनजाति", "जनजातीय", "tribal"],
-    ["मज़दूर", "मजदूर", "मज़दूरों", "मजदूरों", "श्रमिक", "श्रमिकों", "workers", "labour"],
-    ["प्रवासी", "प्रवासियों", "migrant", "migrants", "migration"],
-    ["रोज़गार", "रोजगार", "employment", "jobs"],
-    ["आजीविका", "livelihood", "livelihoods"],
-    ["गांव", "गाँव", "गांवों", "गाँवों", "village", "villages"],
-    ["ग्रामीण", "rural"],
-    ["शहरी", "urban"],
-    ["सरकार", "सरकारी", "government"],
-    ["विकलांग", "विकलांगता", "दिव्यांग", "disability", "disabled"],
-    ["लिंग", "जेंडर", "gender"],
-    ["हिंसा", "violence"],
-    ["कोविड", "कोविड-19", "कोरोना", "covid", "coronavirus"],
-    ["महामारी", "pandemic"],
-    ["सीएसआर", "csr"],
-    ["एनजीओ", "स्वयंसेवी संस्था", "ngo", "nonprofit"],
-    ["फ़ंडिंग", "फंडिंग", "अनुदान", "funding", "grant", "grants"],
-    ["परोपकार", "philanthropy"]
+    [
+      "महिला",
+      "महिलाएं",
+      "महिलाओं",
+      "स्त्री",
+      "औरत",
+      "औरतों",
+      "women",
+      "woman"
+    ],
+    [
+      "लड़की",
+      "लड़कियां",
+      "लड़कियों",
+      "बालिका",
+      "girls",
+      "girl"
+    ],
+    [
+      "बच्चा",
+      "बच्चे",
+      "बच्चों",
+      "बालक",
+      "children",
+      "child"
+    ],
+    [
+      "युवा",
+      "युवाओं",
+      "नौजवान",
+      "youth"
+    ],
+    [
+      "शिक्षा",
+      "पढ़ाई",
+      "education"
+    ],
+    [
+      "स्कूल",
+      "विद्यालय",
+      "school"
+    ],
+    [
+      "शिक्षक",
+      "शिक्षकों",
+      "अध्यापक",
+      "teacher",
+      "teachers"
+    ],
+    [
+      "स्वास्थ्य",
+      "सेहत",
+      "health"
+    ],
+    [
+      "पोषण",
+      "nutrition"
+    ],
+    [
+      "कुपोषण",
+      "malnutrition"
+    ],
+    [
+      "स्वच्छता",
+      "सफ़ाई",
+      "सफाई",
+      "sanitation"
+    ],
+    [
+      "मासिक धर्म",
+      "माहवारी",
+      "पीरियड्स",
+      "menstruation"
+    ],
+    [
+      "किसान",
+      "किसानों",
+      "कृषक",
+      "farmer",
+      "farmers"
+    ],
+    [
+      "कृषि",
+      "खेती",
+      "agriculture",
+      "farming"
+    ],
+    [
+      "पानी",
+      "जल",
+      "water"
+    ],
+    [
+      "जलवायु परिवर्तन",
+      "climate change"
+    ],
+    [
+      "आदिवासी",
+      "जनजाति",
+      "जनजातीय",
+      "tribal"
+    ],
+    [
+      "मज़दूर",
+      "मजदूर",
+      "मज़दूरों",
+      "मजदूरों",
+      "श्रमिक",
+      "श्रमिकों",
+      "workers",
+      "labour",
+      "labor",
+      "mazdoor",
+      "majdoor",
+      "shramik"
+    ],
+    [
+      "प्रवासी",
+      "प्रवासियों",
+      "migrant",
+      "migrants",
+      "migration"
+    ],
+    [
+      "रोज़गार",
+      "रोजगार",
+      "employment",
+      "jobs"
+    ],
+    [
+      "आजीविका",
+      "livelihood",
+      "livelihoods"
+    ],
+    [
+      "गांव",
+      "गाँव",
+      "गांवों",
+      "गाँवों",
+      "village",
+      "villages",
+      "gaon",
+      "gav"
+    ],
+    [
+      "ग्रामीण",
+      "rural"
+    ],
+    [
+      "शहरी",
+      "urban"
+    ],
+    [
+      "सरकार",
+      "सरकारी",
+      "government"
+    ],
+    [
+      "विकलांग",
+      "विकलांगता",
+      "दिव्यांग",
+      "disability",
+      "disabled"
+    ],
+    [
+      "लिंग",
+      "जेंडर",
+      "gender"
+    ],
+    [
+      "हिंसा",
+      "violence"
+    ],
+    [
+      "कोविड",
+      "कोविड-19",
+      "कोरोना",
+      "covid",
+      "coronavirus"
+    ],
+    [
+      "महामारी",
+      "pandemic"
+    ],
+    [
+      "सीएसआर",
+      "csr"
+    ],
+    [
+      "एनजीओ",
+      "स्वयंसेवी संस्था",
+      "ngo",
+      "nonprofit"
+    ],
+    [
+      "फ़ंडिंग",
+      "फंडिंग",
+      "अनुदान",
+      "funding",
+      "grant",
+      "grants"
+    ],
+    [
+      "परोपकार",
+      "philanthropy"
+    ],
+    [
+      "एफपीओ",
+      "fpo",
+      "किसान उत्पादक संगठन",
+      "किसान उत्पादक संगठनों",
+      "farmer producer organisation"
+    ],
+    [
+      "एफआरए",
+      "fra",
+      "वन अधिकार अधिनियम",
+      "वन अधिकार कानून",
+      "वनाधिकार",
+      "forest rights act"
+    ],
+    [
+      "सीएफआर",
+      "cfr",
+      "सामुदायिक वन अधिकार",
+      "सामुदायिक वनाधिकार",
+      "community forest rights"
+    ],
+    [
+      "एफसीआरए",
+      "fcra",
+      "frca",
+      "विदेशी अंशदान",
+      "foreign contribution"
+    ],
+    [
+      "पीवीटीजी",
+      "pvtg",
+      "पीवीजीटी",
+      "विशेष रूप से कमजोर जनजातीय समूह"
+    ],
+    [
+      "पेसा",
+      "pesa"
+    ],
+    [
+      "एसएचजी",
+      "shg",
+      "shgs",
+      "स्वयं सहायता समूह",
+      "self help group"
+    ],
+    [
+      "टीबी",
+      "tb",
+      "तपेदिक",
+      "tuberculosis"
+    ],
+    [
+      "एफएलएन",
+      "fln",
+      "बुनियादी साक्षरता",
+      "foundational literacy"
+    ],
+    [
+      "पीडीएस",
+      "pds",
+      "सार्वजनिक वितरण प्रणाली",
+      "public distribution system"
+    ],
+    [
+      "पॉश",
+      "posh",
+      "कार्यस्थल पर यौन उत्पीड़न"
+    ],
+    [
+      "आरटीआई",
+      "rti",
+      "सूचना का अधिकार",
+      "right to information"
+    ],
+    [
+      "आरटीई",
+      "rte",
+      "शिक्षा का अधिकार",
+      "right to education"
+    ],
+    [
+      "आईसीडीएस",
+      "icds"
+    ],
+    [
+      "एटीई",
+      "एटीइ",
+      "ate"
+    ],
+    [
+      "डीएनटी",
+      "dnt",
+      "विमुक्त",
+      "घुमंतू",
+      "खानाबदोश",
+      "nomadic",
+      "denotified"
+    ],
+    [
+      "मनरेगा",
+      "नरेगा",
+      "mgnrega",
+      "nrega",
+      "manrega",
+      "narega",
+      "रोजगार गारंटी",
+      "रोज़गार गारंटी",
+      "वीबी-जी राम जी",
+      "वीबी जी राम जी",
+      "वीबी राम जी",
+      "वीबी-जी राम",
+      "वीबी ग्राम जी",
+      "v b g ram g",
+      "vb g ram g",
+      "vb-g ram g"
+    ],
+    [
+      "आंगनवाड़ी",
+      "आंगनबाड़ी",
+      "anganwadi",
+      "aanganwadi",
+      "anganbadi"
+    ],
+    [
+      "आशा कार्यकर्ता",
+      "आशा वर्कर",
+      "आशा सहयोगिनी",
+      "asha worker",
+      "asha workers"
+    ],
+    [
+      "कानून",
+      "क़ानून",
+      "कानूनों",
+      "law",
+      "laws"
+    ],
+    [
+      "श्रम कानून",
+      "श्रम क़ानून",
+      "labour law",
+      "labour laws",
+      "labor law"
+    ],
+    [
+      "आंदोलन",
+      "आन्दोलन",
+      "protest",
+      "movement",
+      "andolan"
+    ],
+    [
+      "नारीवाद",
+      "नारीवादी",
+      "feminism",
+      "feminist",
+      "narivad"
+    ],
+    [
+      "सशक्तिकरण",
+      "सशक्तीकरण",
+      "empowerment",
+      "एम्पावरमेंट"
+    ],
+    [
+      "न्याय",
+      "justice"
+    ],
+    [
+      "सामाजिक न्याय",
+      "social justice"
+    ],
+    [
+      "नेतृत्व",
+      "लीडरशिप",
+      "leadership"
+    ],
+    [
+      "निगरानी और मूल्यांकन",
+      "मॉनीटरिंग और इवैल्यूएशन",
+      "मॉनिटरिंग",
+      "monitoring evaluation",
+      "monitoring and evaluation"
+    ],
+    [
+      "रिपोर्ट लेखन",
+      "रिपोर्ट राइटिंग",
+      "report writing"
+    ],
+    [
+      "बजट",
+      "budget"
+    ],
+    [
+      "जाति",
+      "जातिगत",
+      "caste"
+    ],
+    [
+      "जाति प्रथा",
+      "जातिप्रथा",
+      "caste system"
+    ],
+    [
+      "दलित",
+      "dalit",
+      "dalits"
+    ],
+    [
+      "संविधान",
+      "constitution",
+      "samvidhan"
+    ],
+    [
+      "चुनाव",
+      "election",
+      "elections"
+    ],
+    [
+      "जंगल",
+      "वन",
+      "forest",
+      "forests"
+    ],
+    [
+      "बाढ़",
+      "flood",
+      "floods"
+    ],
+    [
+      "परिवहन",
+      "transport",
+      "transportation"
+    ],
+    [
+      "शहरीकरण",
+      "urbanisation",
+      "urbanization"
+    ],
+    [
+      "मानसिक स्वास्थ्य",
+      "mental health"
+    ],
+    [
+      "गरिमा",
+      "dignity"
+    ],
+    [
+      "जनगणना",
+      "census",
+      "jan ganana"
+    ],
+    [
+      "ट्रांसजेंडर",
+      "ट्रांस",
+      "transgender",
+      "trans"
+    ],
+    [
+      "क्वीयर",
+      "queer",
+      "lgbtq"
+    ],
+    [
+      "इंटर्नशिप",
+      "internship"
+    ],
+    [
+      "प्रशिक्षण",
+      "ट्रेनिंग",
+      "training"
+    ],
+    [
+      "फैसिलिटेशन",
+      "फैसिलिटेटर",
+      "facilitation",
+      "facilitator",
+      "facilitater"
+    ],
+    [
+      "मधुमक्खी पालन",
+      "beekeeping"
+    ],
+    [
+      "यौन हिंसा",
+      "sexual violence"
+    ],
+    [
+      "घरेलू कामगार",
+      "घरेलू कामगारों",
+      "domestic workers",
+      "domestic worker"
+    ],
+    [
+      "सफाई कर्मचारी",
+      "सफ़ाई कर्मचारी",
+      "sanitation workers",
+      "manual scavenging",
+      "मैला ढोना"
+    ],
+    [
+      "पशुपालन",
+      "पशु",
+      "livestock"
+    ]
   ]
 }

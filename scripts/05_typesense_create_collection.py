@@ -81,6 +81,8 @@ def main() -> None:
             {"name": "locations_norm", "type": "string[]", "facet": True, "optional": True},
             # Tagged locations + locations named in the text (utils.derive_locations); used for filtering
             {"name": "locations_all", "type": "string[]", "facet": True, "optional": True},
+            # Series/format names from config/series.json (utils.article_series)
+            {"name": "series", "type": "string[]", "facet": True, "optional": True},
             {"name": "contributors_norm", "type": "string[]", "facet": True, "optional": True},
 
             {"name": "article_type", "type": "string", "facet": True, "optional": True},

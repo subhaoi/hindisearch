@@ -126,6 +126,21 @@ def detect_entities(
                         if t in content or tk in k0:
                             strip.add(i)
 
+        # One-word query that is part of an author's name ("इंद्रेश", "unnayan"): boost that
+        # author's articles. Never a filter - single words like शांति are also ordinary words.
+        if field == "contributors_norm" and not got and len(toks) == 1 and len(toks[0]) >= 4:
+            t, tk = toks[0], tok_keys[0]
+            latin = t.isascii()
+            # Hindi script: exact name part. Latin: phonetic key, 5+ letters (short keys collide:
+            # "pani"/पानी vs पन्नी)
+            partial = [
+                v for v, mt, keys in zip(values, texts, keys_list)
+                if (not latin and t in {fold_devanagari(x) for x in query_tokens(mt)})
+                or (latin and len(tk) >= 5 and tk in {p for k in keys for p in k.split()})
+            ]
+            if 1 <= len(partial) <= max_per_field:
+                got, score = partial, 1
+
         if got:
             matches[field] = got
             conf[field] = score

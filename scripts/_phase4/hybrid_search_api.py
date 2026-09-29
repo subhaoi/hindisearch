@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 import time
+from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
@@ -22,6 +23,8 @@ from scripts.utils import (
     Paths, read_parquet, canonicalize_query_for_search, is_nullish, e5_prefix_text,
     clean_title, query_tokens, roman_query_to_devanagari, iso_to_epoch_seconds,
     location_patterns, derive_locations,
+    load_series, article_series, detect_series, classify_query, MAX_QUERY_TOKENS,
+    english_glossary, apply_glossary,
 )
 from .ranker_v1 import ranker_v1
 from .ranker_v2 import ranker_v2, load_weights
@@ -190,6 +193,12 @@ _gaz_loc = gazetteer.get("locations_norm") or {}
 location_aliases = dict(zip(_gaz_loc.get("values") or [], _gaz_loc.get("aliases") or [[] for _ in _gaz_loc.get("values") or []]))
 loc_patterns = location_patterns(_gaz_loc.get("values") or [], location_aliases)
 
+series_config = load_series(paths.root / "config" / "series.json")
+
+# English/romanized terms from the synonym groups, used to put the semantic query in Hindi
+_syn_path = paths.root / "config" / "synonyms_v1.json"
+glossary = english_glossary(json.loads(_syn_path.read_text(encoding="utf-8"))["groups"]) if _syn_path.exists() else {}
+
 articles_meta: Dict[str, Dict[str, Any]] = {}
 
 for _, r in articles_df.iterrows():
@@ -226,6 +235,10 @@ for _, r in articles_df.iterrows():
         # Tagged + mentioned locations; same derivation as the Typesense locations_all field
         "locations_all": derive_locations(r.get("title_hi"), r.get("summary_hi"), r.get("content_hi"),
                                           _as_list(r.get("locations_norm")), loc_patterns),
+        # Same derivation as the Typesense `series` field (config/series.json)
+        "series": article_series(r.get("title_hi"), _as_list(r.get("categories_norm")),
+                                 None if is_nullish(r.get("multimedia_type")) else str(r.get("multimedia_type")),
+                                 series_config),
     }
 
 chunks_df = read_parquet(CHUNKS_PATH)
@@ -322,6 +335,9 @@ def build_semantic_query(raw_query: str, mode: str, strip_tokens: List[str]) -> 
         if kept:  # fall back to the original if stripping removes everything
             q = " ".join(kept)
     if mode in ("roman", "mixed"):
+        # Known terms first ("labour law" -> "श्रम कानून"), so word-by-word conversion
+        # can't turn English into lookalike Hindi words ("law" -> "लव")
+        q = apply_glossary(q, glossary)
         dev = roman_query_to_devanagari(q, translit_vocab)
         if dev:
             q = dev
@@ -365,8 +381,14 @@ def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Di
             p["filter_by"] = filter_by
         return p
 
-    searches = [params(canon["q"], query_by, weights, typos)]
-    if mode == "dev" and canon.get("q_stem") and canon["q_stem"] != canon["q"]:
+    if canon["q"] == "*":
+        # Browsing a series or a year: everything that passes the filter, newest first
+        browse = params("*", query_by, weights, "0")
+        browse["sort_by"] = "published_ts:desc"
+        searches = [browse]
+    else:
+        searches = [params(canon["q"], query_by, weights, typos)]
+    if canon["q"] != "*" and mode == "dev" and canon.get("q_stem") and canon["q_stem"] != canon["q"]:
         # Stems are short; typo tolerance on them mostly adds noise
         searches.append(params(canon["q_stem"], "title_stem,summary_stem,content_stem", "6,3,1", "0"))
 
@@ -510,17 +532,45 @@ def search(req: SearchRequest) -> SearchResponse:
     if ranker_version not in RANKERS:
         raise HTTPException(status_code=400, detail=f"ranker must be one of {sorted(RANKERS)}")
 
-    canon = canonicalize_query_for_search(req.query)
-    mode = canon["mode"]
+    kind, year = classify_query(req.query)
+    if kind == "junk":
+        # Exploit probes and strings with no letters: nothing to search, and not worth logging
+        return SearchResponse(query_id=0, mode="junk", query_used="", query_semantic="", total_results=0,
+                              total_pages=1, page=1, per_page=max(1, int(req.per_page)), results=[])
+
+    # A pasted paragraph: keep the first MAX_QUERY_TOKENS words
+    query_text = " ".join(req.query.split()[:MAX_QUERY_TOKENS])
+    extra_filters: List[str] = []
+    series_ids: Optional[set] = None
+    series: List[str] = []
+    if kind == "year":
+        # A bare year ("2026") lists that year's articles, newest first
+        start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
+        end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
+        extra_filters.append(f"published_ts:>={start} && published_ts:<{end}")
+        series_ids = {a for a, m in articles_meta.items() if start <= int(m.get("published_ts") or 0) < end}
+        query_text = ""
+    else:
+        # "फोटो निबंध जलवायु" -> filter to photo essays, search "जलवायु" within them
+        series, query_text = detect_series(query_text, series_config)
+        if series:
+            extra_filters.append(f"series:=[{','.join(series)}]")
+            series_ids = {a for a, m in articles_meta.items() if set(m.get("series") or []) & set(series)}
+
+    browse = not query_text.strip()
+    if browse:
+        mode = canonicalize_query_for_search(req.query)["mode"]
+        canon = {"raw": req.query, "mode": mode, "q": "*", "q_stem": "*", "q_full": "", "roman_norm": ""}
+    else:
+        canon = canonicalize_query_for_search(query_text)
+        mode = canon["mode"]
     query_used = canon["q"]  # lexical/canonicalized
 
     entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
     hard = entity.get("hard", {})
 
-    filter_final = req.filter_by
-    auto_f = entity.get("filter_by_auto")
-    if auto_f:
-        filter_final = f"({filter_final}) && ({auto_f})" if filter_final else auto_f
+    filter_parts = [f for f in [req.filter_by, entity.get("filter_by_auto"), *extra_filters] if f]
+    filter_final = " && ".join(f"({f})" for f in filter_parts) if len(filter_parts) > 1 else (filter_parts[0] if filter_parts else None)
 
     hard_contributors = hard.get("contributors_norm") or []
     hard_locations = hard.get("locations_norm") or []
@@ -537,13 +587,19 @@ def search(req: SearchRequest) -> SearchResponse:
             loc_ids = set(get_article_ids_with("locations_all", hard_locations))
             ids = loc_ids if ids is None else (ids & loc_ids) or ids
         qdrant_article_ids = sorted(ids) if ids else None
-
-    query_semantic = build_semantic_query(req.query, mode, entity.get("strip_tokens") or [])
+    if series_ids is not None:
+        ids2 = series_ids if qdrant_article_ids is None else (series_ids & set(qdrant_article_ids))
+        qdrant_article_ids = sorted(ids2) if ids2 else ["__none__"]
 
     lex = typesense_search(canon, filter_by=filter_final)
-    q_vec = encode_query(query_semantic)
-    sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
-    sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)
+    if browse:
+        # Nothing to match semantically; the filtered keyword list is already newest-first
+        query_semantic, sem_a, sem_c = "", [], []
+    else:
+        query_semantic = build_semantic_query(query_text, mode, entity.get("strip_tokens") or [])
+        q_vec = encode_query(query_semantic)
+        sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
+        sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)
 
     candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
 
@@ -613,6 +669,8 @@ def search(req: SearchRequest) -> SearchResponse:
                 "has_location_entity": has_location_entity,
                 "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
                 "query_semantic_used": query_semantic,
+                "query_kind": kind,
+                "series": series,
             },
         )
 

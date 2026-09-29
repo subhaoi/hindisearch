@@ -163,15 +163,28 @@ def fold_devanagari(s: str) -> str:
 
 
 # Noun/adjective inflections, longest first (light stemmer after Ramanathan & Rao, 2003)
+# Nasal consonant + virama before a consonant is the same sound as anusvara: आन्दोलन = आंदोलन
+_NASAL_CONJUNCT_RE = re.compile("[ङञणनम]\u094d(?=[\u0915-\u0939])")
+# Long/short i and u are often confused in typing (घरेलु/घरेलू, जाती/जाति)
+_VOWEL_LENGTH = str.maketrans({"ी": "ि", "ू": "ु", "ई": "इ", "ऊ": "उ"})
+
+
+def loose_fold(word: str) -> str:
+    """Stronger folding for the stemmed fields only; exact fields keep the spelling."""
+    return _NASAL_CONJUNCT_RE.sub("ं", fold_devanagari(word)).translate(_VOWEL_LENGTH)
+
+
+# Noun/adjective inflections after loose_fold, longest first (light stemmer after Ramanathan & Rao, 2003)
 _HINDI_SUFFIXES = sorted(
-    ["ियों", "ियां", "ाओं", "ाएं", "ुओं", "ुएं", "ओं", "एं", "ों", "ें", "ां", "ीं", "ी", "े", "ा", "ो", "ि", "ु", "ू"],
+    ["ियों", "ियां", "ाओं", "ाएं", "ुओं", "ुएं", "ओं", "एं", "ों", "ें", "ां", "िं", "े", "ा", "ो", "ि", "ु"],
     key=len,
     reverse=True,
 )
 
 
 def hindi_stem(word: str) -> str:
-    """बच्चा/बच्चे/बच्चों -> बच्च, महिला/महिलाओं/महिलाएं -> महिल. Expects folded text."""
+    """बच्चा/बच्चे/बच्चों -> बच्च, महिला/महिलाओं/महिलाएं -> महिल, आन्दोलन/आंदोलन -> आंदोलन."""
+    word = loose_fold(word)
     for suf in _HINDI_SUFFIXES:
         if word.endswith(suf) and len(word) - len(suf) >= 2:
             return word[: -len(suf)]
@@ -476,7 +489,13 @@ _ROMAN_KEY_RULES = [
     (re.compile(r"ee"), "i"),
     (re.compile(r"oo"), "u"),
     (re.compile(r"ou"), "au"),
-    (re.compile(r"m(?=[bp])"), "n"),
+    # ai/e and au/o are typed interchangeably (kaise/kese, yaun/yon, aur/or);
+    # collapse long vowels first so भाई (bhaaee) and "bhai" meet
+    (re.compile(r"([aeiou])\1+"), r"\1"),
+    (re.compile(r"ai"), "e"),
+    (re.compile(r"au"), "o"),
+    # Anusvara before a consonant is typed m or n (samvidhan/sanvidhan, sampark/sanpark)
+    (re.compile(r"m(?=[bcdfgjklnpqrstvwxz])"), "n"),
     (re.compile(r"([a-z])\1+"), r"\1"),
 ]
 
@@ -509,6 +528,85 @@ def text_to_key_variants(s: Optional[str]) -> List[str]:
         if k and k not in out:
             out.append(k)
     return out
+
+
+# --------- Series / formats (config/series.json) ---------
+
+def load_series(path: Path) -> List[Dict[str, Any]]:
+    if not Path(path).exists():
+        return []
+    with Path(path).open("r", encoding="utf-8") as f:
+        return json.load(f).get("series", [])
+
+
+def article_series(
+    title: Optional[str], categories: List[str], multimedia_type: Optional[str], series: List[Dict[str, Any]]
+) -> List[str]:
+    """Names of the series an article belongs to (headline regex, category or media type)."""
+    folded = fold_devanagari(clean_title(title))
+    cats = set(categories or [])
+    out = []
+    for sr in series:
+        hit = (
+            (sr.get("title_regex") and re.search(fold_devanagari(sr["title_regex"]), folded))
+            or (cats & set(sr.get("categories", [])))
+            or (sr.get("multimedia_type") and str(multimedia_type or "") == sr["multimedia_type"])
+        )
+        if hit:
+            out.append(sr["name"])
+    return out
+
+
+def _trigger_tokens(trigger: str) -> List[str]:
+    return [fold_devanagari(t) if DEVANAGARI_RE.search(t) else roman_key(t) for t in query_tokens(trigger)]
+
+
+def detect_series(query: str, series: List[Dict[str, Any]]) -> Tuple[List[str], str]:
+    """
+    ("फोटो निबंध जलवायु", ...) -> (["photo_essay"], "जलवायु"). Matches the longest trigger
+    first; Latin triggers compare as phonetic keys so "saral kosh"/"saral kosh" variants meet.
+    Returns the series names and the query with trigger words removed.
+    """
+    raw = query_tokens(query)
+    norm = [fold_devanagari(t) if DEVANAGARI_RE.search(t) else roman_key(t) for t in raw]
+    triggers = sorted(
+        ((sr["name"], _trigger_tokens(t)) for sr in series for t in sr.get("triggers", [])),
+        key=lambda x: -len(x[1]),
+    )
+    used = [False] * len(norm)
+    found: List[str] = []
+    for name, tt in triggers:
+        n = len(tt)
+        if not n:
+            continue
+        for i in range(len(norm) - n + 1):
+            if norm[i:i + n] == tt and not any(used[i:i + n]):
+                used[i:i + n] = [True] * n
+                if name not in found:
+                    found.append(name)
+    rest = " ".join(t for t, u in zip(raw, used) if not u)
+    return found, rest
+
+
+# --------- Queries that are not searches ---------
+
+_YEAR_RE = re.compile(r"^\s*((?:19|20)\d\d)\s*$")
+# Exploit probes / pasted markup seen in the logs (/index/\think\app/invokefunction, @import url(...))
+_PROBE_RE = re.compile(r"(://|^\s*/|\\|@import|<\s*script|\.php\b|\bunion\s+select\b)", re.IGNORECASE)
+MAX_QUERY_TOKENS = 30
+
+
+def classify_query(q: str) -> Tuple[str, Optional[int]]:
+    """
+    ("year", 2026) for a bare year, ("junk", None) for probes and strings with no letters,
+    else ("search", None).
+    """
+    m = _YEAR_RE.match(q or "")
+    if m:
+        return "year", int(m.group(1))
+    if _PROBE_RE.search(q or "") or not reg.search(r"\p{L}", q or ""):
+        return "junk", None
+    return "search", None
 
 
 # --------- Query canonicalization ---------
@@ -606,6 +704,46 @@ ENGLISH_COMMON_WORDS = set(_ENGLISH_STOPWORDS) | {
     "program", "programme", "scheme", "rights", "farmers", "agriculture", "nutrition",
     "sanitation", "migration", "tribal", "disability", "leadership", "philanthropy",
 }
+
+
+def english_glossary(synonym_groups: List[List[str]]) -> Dict[str, str]:
+    """
+    {latin phrase: Hindi term} from the synonym groups (config/synonyms_v1.json): every
+    Latin-letter term maps to the first Devanagari term of its group, e.g.
+    "labour law" -> "श्रम कानून", "fpo" -> "एफपीओ", "andolan" -> "आंदोलन".
+    """
+    out: Dict[str, str] = {}
+    for grp in synonym_groups:
+        hindi = next((t for t in grp if DEVANAGARI_RE.search(t)), None)
+        if not hindi:
+            continue
+        for t in grp:
+            if not DEVANAGARI_RE.search(t):
+                key = " ".join(query_tokens(t))
+                if key:
+                    out.setdefault(key, hindi)
+    return out
+
+
+def apply_glossary(query: str, glossary: Dict[str, str]) -> str:
+    """Replace known English/romanized phrases with their Hindi term, longest phrase first."""
+    toks = query_tokens(query)
+    if not glossary or not toks:
+        return query
+    max_len = max(len(k.split()) for k in glossary)
+    out: List[str] = []
+    i = 0
+    while i < len(toks):
+        for n in range(min(max_len, len(toks) - i), 0, -1):
+            hit = glossary.get(" ".join(toks[i:i + n]))
+            if hit:
+                out.append(hit)
+                i += n
+                break
+        else:
+            out.append(toks[i])
+            i += 1
+    return " ".join(out)
 
 
 def roman_query_to_devanagari(query: str, vocab: Dict[str, str], min_hit_ratio: float = 0.5) -> Optional[str]:

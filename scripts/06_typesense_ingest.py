@@ -13,7 +13,7 @@ from tqdm import tqdm
 from utils import (
     Paths, read_parquet, ensure_dir, write_json,
     is_nullish, iso_to_epoch_seconds, text_to_key, clean_title,
-    fold_devanagari, stem_text, location_patterns, derive_locations,
+    fold_devanagari, stem_text, location_patterns, derive_locations, load_series, article_series,
 )
 
 
@@ -69,6 +69,7 @@ def main() -> None:
     gaz_loc = json.loads(gaz_path.read_text(encoding="utf-8"))["locations_norm"]
     aliases = dict(zip(gaz_loc["values"], gaz_loc.get("aliases") or [[] for _ in gaz_loc["values"]]))
     loc_patterns = location_patterns(gaz_loc["values"], aliases)
+    series_config = load_series(root / "config" / "series.json")
 
     report: Dict[str, Any] = {"rows": len(df), "indexed": 0, "failed": 0, "failures": []}
 
@@ -115,6 +116,9 @@ def main() -> None:
             "locations_norm": safe_list(row.get("locations_norm")),
             "contributors_norm": safe_list(row.get("contributors_norm")),
             "locations_all": locations_all,
+            "series": article_series(title_hi, safe_list(row.get("categories_norm")),
+                                     None if is_nullish(row.get("multimedia_type")) else str(row.get("multimedia_type")),
+                                     series_config),
             # Match keys of every location the article is about, incl. English aliases (delhi, orissa)
             "locations_key": list(dict.fromkeys(
                 k for loc in locations_all for name in [loc] + aliases.get(loc, []) for k in [text_to_key(name)] if k

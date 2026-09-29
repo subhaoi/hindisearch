@@ -397,6 +397,26 @@ Set `RETRIEVAL_VERSION=retrieval_v3` in `.env` so query logs before/after are di
 
 ---
 
+## Improvements from the search logs
+
+Rule-based, no paid services. Derived from 3,920 logged searches (Dec 2025 - Sep 2026).
+
+- **Series and formats** (`config/series.json`): "सरल कोश", "फोटो निबंध" (and the common misspelling "फोटो निंबंध"), "photo story", "हल्का-फुल्का", interviews, explainers, "मेरा एक दिन", video, audio. A query naming a series is filtered to it; "फोटो निबंध जलवायु" searches "जलवायु" within photo essays; the series name alone lists the series newest first. Add series or triggers by editing the JSON.
+- **Synonyms** (`config/synonyms_v1.json`, 86 groups): acronyms as searched (एफपीओ, एफआरए, fcra, pvtg, shg, …) linked to the forms articles use, मनरेगा/नरेगा with the VB-G RAM G spellings, and English sector terms ("labour law" -> श्रम कानून). The English terms also put English queries' semantic search into Hindi.
+- **Spelling**: stemmed fields also merge आन्दोलन/आंदोलन (nasal conjunct vs anusvara) and long/short i and u (घरेलु/घरेलू); Latin-letter keys merge m/n before consonants (samvidhan/sanvidhan) and ai/e, au/o (kaise/kese, yaun/yon).
+- **Authors by first name**: a one-word query that is part of an author's name ("इंद्रेश", "unnayan") boosts that author's articles.
+- **Non-searches**: a bare year ("2026") lists that year's articles; exploit probes and strings without letters return nothing and are not logged; pasted paragraphs are cut to 30 words.
+
+Measure with the free check (known titles, authors, series; answers computed from the articles):
+
+```bash
+python scripts/26_eval_rules.py --save runs/before.json
+# deploy, restart the API
+python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.json
+```
+
+---
+
 ## Troubleshooting & tips
 
 - Logs (`logs/*.json`) are designed for quick sanity checks—skim them after each phase.

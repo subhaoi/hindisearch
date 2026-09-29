@@ -1,0 +1,356 @@
+{
+ "version": "eval_rules_v1",
+ "source": "search logs 2025-12-13..2026-09-29, curated",
+ "note": "Only queries whose right answers can be computed from the articles (titles, authors, series). Resolved against the current data at run time, so they stay valid as articles are added. No LLM or paid service involved.",
+ "sets": {
+  "known_item": {
+   "why": "Pasted or partly remembered article titles. The right answer is known: the matching article should be #1. `title_contains` matches the headline or the SEO title.",
+   "queries": [
+    {
+     "query": "सामाजिक उद्यमी कैसे बनें?",
+     "expect": {
+      "title_contains": "सामाजिक उद्यमी कैसे बनें"
+     }
+    },
+    {
+     "query": "क्या है एक रिर्सचर का काम",
+     "expect": {
+      "title_contains": "रिर्सचर का काम"
+     }
+    },
+    {
+     "query": "जलवायु समस्या का हल मिल गया है!",
+     "expect": {
+      "title_contains": "जलवायु समस्या का हल"
+     }
+    },
+    {
+     "query": "सरल कोश: फ्रंटलाइन वर्कर",
+     "expect": {
+      "title_contains": "फ्रंटलाइन वर्कर"
+     }
+    },
+    {
+     "query": "सोशल सेक्टर में कैपेसिटी बिल्डिंग: किसके लिए क्या मायने?",
+     "expect": {
+      "title_contains": "कैपेसिटी बिल्डिंग: किसके"
+     }
+    },
+    {
+     "query": "हमारे स्कूलों से क्यों नदारद है सावित्रीबाई फुले की कहानी?",
+     "expect": {
+      "title_contains": "सावित्रीबाई फुले"
+     }
+    },
+    {
+     "query": "कॉन्वेंट में पढ़कर भी तुम्हें सोशल सेक्टर में काम करना है, क्यों?",
+     "expect": {
+      "title_contains": "कॉन्वेंट में पढ़कर"
+     }
+    },
+    {
+     "query": "पर्यावरण कानूनों में खनन परियोजनाओं पर छूट",
+     "expect": {
+      "title_contains": "खनन परियोजनाओं पर छूट"
+     }
+    },
+    {
+     "query": "फ़ोटो निबंध: जलवायु परिवर्तन पर सबक",
+     "expect": {
+      "title_contains": "जलवायु परिवर्तन पर सबक"
+     }
+    },
+    {
+     "query": "सपनापुर में आखिरी आदमी की तलाश",
+     "expect": {
+      "title_contains": "सपनापुर"
+     }
+    },
+    {
+     "query": "महिलाये सोना",
+     "expect": {
+      "title_contains": "सोना क्यों"
+     }
+    },
+    {
+     "query": "mahilaaye sona",
+     "expect": {
+      "title_contains": "सोना क्यों"
+     }
+    },
+    {
+     "query": "बतख दो, अंडे लो",
+     "expect": {
+      "title_contains": "बत्तख"
+     }
+    },
+    {
+     "query": "सुई-धागा",
+     "expect": {
+      "title_contains": "सुई"
+     }
+    },
+    {
+     "query": "आयुष्मान भारत योजना लेप्रसी",
+     "expect": {
+      "title_contains": "लेप्रसी"
+     }
+    }
+   ]
+  },
+  "author": {
+   "why": "People look up writers by name, in Hindi or English letters, sometimes misspelled or without spaces.",
+   "queries": [
+    {
+     "query": "सृष्टि गुप्ता",
+     "expect": {
+      "contributor": "सृष्टि गुप्ता"
+     }
+    },
+    {
+     "query": "srishti gupta",
+     "expect": {
+      "contributor": "सृष्टि गुप्ता"
+     }
+    },
+    {
+     "query": "राकेश स्वामी",
+     "expect": {
+      "contributor": "राकेश स्वामी"
+     }
+    },
+    {
+     "query": "राहुल सिंह",
+     "expect": {
+      "contributor": "राहुल सिंह"
+     }
+    },
+    {
+     "query": "पूजा राठी",
+     "expect": {
+      "contributor": "पूजा राठी"
+     }
+    },
+    {
+     "query": "pooja rathi",
+     "expect": {
+      "contributor": "पूजा राठी"
+     }
+    },
+    {
+     "query": "saloni sisodiya",
+     "expect": {
+      "contributor": "सलोनी सिसोदिया"
+     }
+    },
+    {
+     "query": "कुमार उन्नयन",
+     "expect": {
+      "contributor": "कुमार उन्नयन"
+     }
+    },
+    {
+     "query": "unnayan",
+     "expect": {
+      "contributor": "कुमार उन्नयन"
+     }
+    },
+    {
+     "query": "इंद्रेश",
+     "expect": {
+      "contributor": "इंद्रेश शर्मा"
+     }
+    },
+    {
+     "query": "anita dhakad",
+     "expect": {
+      "contributor": "अनीता धाकड़"
+     }
+    },
+    {
+     "query": "लिबी जॉनसन",
+     "expect": {
+      "contributor": "लिबी जॉनसन"
+     }
+    },
+    {
+     "query": "dipika katara",
+     "expect": {
+      "contributor_like": "कटारा"
+     }
+    },
+    {
+     "query": "naziya malik",
+     "expect": {
+      "contributor_like": "नाज"
+     }
+    },
+    {
+     "query": "disha srivastava",
+     "expect": {
+      "contributor_like": "दिशा"
+     }
+    },
+    {
+     "query": "prakashyadav",
+     "expect": {
+      "contributor_like": "प्रकाश"
+     }
+    }
+   ]
+  },
+  "series_format": {
+   "why": "Browsing a series or format: glossary (सरल कोश), photo essays, humour, interviews, explainers. Includes common misspellings.",
+   "queries": [
+    {
+     "query": "सरल कोश",
+     "expect": {
+      "title_contains_any": [
+       "सरल कोश",
+       "सरल-कोश"
+      ]
+     }
+    },
+    {
+     "query": "सरलकोश",
+     "expect": {
+      "title_contains_any": [
+       "सरल कोश",
+       "सरल-कोश"
+      ]
+     }
+    },
+    {
+     "query": "saral kosh",
+     "expect": {
+      "title_contains_any": [
+       "सरल कोश",
+       "सरल-कोश"
+      ]
+     }
+    },
+    {
+     "query": "शब्दावली",
+     "expect": {
+      "title_contains_any": [
+       "सरल कोश",
+       "सरल-कोश",
+       "शब्दावली",
+       "शब्द"
+      ]
+     }
+    },
+    {
+     "query": "फोटो निबंध",
+     "expect": {
+      "title_contains_any": [
+       "फोटो निबंध",
+       "फ़ोटो निबंध"
+      ]
+     }
+    },
+    {
+     "query": "फोटो निंबंध",
+     "expect": {
+      "title_contains_any": [
+       "फोटो निबंध",
+       "फ़ोटो निबंध"
+      ]
+     }
+    },
+    {
+     "query": "photo story",
+     "expect": {
+      "title_contains_any": [
+       "फोटो निबंध",
+       "फ़ोटो निबंध"
+      ]
+     }
+    },
+    {
+     "query": "हल्का-फुल्का",
+     "expect": {
+      "category": "हल्का-फुल्का"
+     }
+    },
+    {
+     "query": "halka-fulka",
+     "expect": {
+      "category": "हल्का-फुल्का"
+     }
+    },
+    {
+     "query": "आईडीआर से समझिए",
+     "expect": {
+      "category": "विशेषताएं>आईडीआर एक्सप्लेन्स"
+     }
+    },
+    {
+     "query": "interview",
+     "expect": {
+      "category": "विशेषताएं>आईडीआर इंटरव्यूज"
+     }
+    },
+    {
+     "query": "मेरा एक दिन",
+     "expect": {
+      "category": "विशेषताएं>मेरा एक दिन"
+     }
+    },
+    {
+     "query": "video",
+     "expect": {
+      "multimedia_type": "video"
+     }
+    }
+   ]
+  },
+  "no_answer": {
+   "why": "Nothing to find (off-topic, junk). Tracked as how many results come back; ideally few or none.",
+   "queries": [
+    {
+     "query": "flipkart",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "ludo",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "yoga asana",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "funny movies",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "how are you",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "/admin",
+     "expect": {
+      "no_good_match": true
+     }
+    },
+    {
+     "query": "98766",
+     "expect": {
+      "no_good_match": true
+     }
+    }
+   ]
+  }
+ }
+}
