@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List
@@ -106,13 +107,15 @@ def main() -> None:
         batch = docs[i:i + bs]
         try:
             res = client.collections[collection].documents.import_(batch, {"action": "upsert"})
-            for line in str(res).splitlines():
-                if '"success":true' in line:
+            # The client returns a list of dicts for list input (JSONL text for string input)
+            results = res if isinstance(res, list) else [json.loads(l) for l in str(res).splitlines() if l.strip()]
+            for r in results:
+                if r.get("success"):
                     report["indexed"] += 1
                 else:
                     report["failed"] += 1
                     if len(report["failures"]) < 50:
-                        report["failures"].append(line)
+                        report["failures"].append(r)
         except Exception as e:
             report["failed"] += len(batch)
             if len(report["failures"]) < 50:
