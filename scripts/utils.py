@@ -167,16 +167,21 @@ def fold_devanagari(s: str) -> str:
 _NASAL_CONJUNCT_RE = re.compile("[ङञणनम]\u094d(?=[\u0915-\u0939])")
 # Long/short i and u are often confused in typing (घरेलु/घरेलू, जाती/जाति)
 _VOWEL_LENGTH = str.maketrans({"ी": "ि", "ू": "ु", "ई": "इ", "ऊ": "उ"})
+# Doubled consonants are often typed single (बत्तख/बतख, पक्का/पका)
+_GEMINATE_RE = re.compile("([\u0915-\u0939])\u094d\\1")
+# A word-final ये is spelled ए just as often (महिलायें/महिलाएं, गये/गए, लिये/लिए, रुपये/रुपए)
+_Y_GLIDE_RE = re.compile("(?<=[\u0915-\u0939\u093e-\u094c])ये(?=ं?$)")
 
 
 def loose_fold(word: str) -> str:
     """Stronger folding for the stemmed fields only; exact fields keep the spelling."""
-    return _NASAL_CONJUNCT_RE.sub("ं", fold_devanagari(word)).translate(_VOWEL_LENGTH)
+    w = _NASAL_CONJUNCT_RE.sub("ं", fold_devanagari(word)).translate(_VOWEL_LENGTH)
+    return _Y_GLIDE_RE.sub("ए", _GEMINATE_RE.sub(r"\1", w))
 
 
 # Noun/adjective inflections after loose_fold, longest first (light stemmer after Ramanathan & Rao, 2003)
 _HINDI_SUFFIXES = sorted(
-    ["ियों", "ियां", "ाओं", "ाएं", "ुओं", "ुएं", "ओं", "एं", "ों", "ें", "ां", "िं", "े", "ा", "ो", "ि", "ु"],
+    ["ियों", "ियां", "ाओं", "ाएं", "ाए", "ुओं", "ुएं", "ओं", "एं", "ों", "ें", "ां", "िं", "े", "ा", "ो", "ि", "ु"],
     key=len,
     reverse=True,
 )
@@ -489,6 +494,8 @@ _ROMAN_KEY_RULES = [
     (re.compile(r"ee"), "i"),
     (re.compile(r"oo"), "u"),
     (re.compile(r"ou"), "au"),
+    # y before e after a vowel is optional (mahilaye/mahilae, gaye/gae, liye/lie)
+    (re.compile(r"(?<=[aeiou])y(?=e)"), ""),
     # ai/e and au/o are typed interchangeably (kaise/kese, yaun/yon, aur/or);
     # collapse long vowels first so भाई (bhaaee) and "bhai" meet
     (re.compile(r"([aeiou])\1+"), r"\1"),
