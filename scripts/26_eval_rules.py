@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 import pandas as pd
 import requests
 
-from utils import read_parquet, fold_devanagari, clean_title, is_nullish
+from utils import read_parquet, fold_devanagari, clean_title, is_nullish, category_leaf
 
 
 def as_list(v: Any) -> List[str]:
@@ -40,7 +40,8 @@ def resolve(expect: Dict[str, Any], articles: pd.DataFrame) -> Optional[Set[str]
         part = expect["contributor_like"]
         return set(ids[articles["contributors_norm"].map(lambda v: any(part in x for x in as_list(v)))])
     if "category" in expect:
-        return set(ids[articles["categories_norm"].map(lambda v: expect["category"] in as_list(v))])
+        leaf = category_leaf(expect["category"])
+        return set(ids[articles["categories_norm"].map(lambda v: leaf in {category_leaf(c) for c in as_list(v)})])
     if "multimedia_type" in expect:
         return set(ids[articles["multimedia_type"].astype(str) == expect["multimedia_type"]])
     return None

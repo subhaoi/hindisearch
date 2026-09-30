@@ -546,17 +546,22 @@ def load_series(path: Path) -> List[Dict[str, Any]]:
         return json.load(f).get("series", [])
 
 
+def category_leaf(c: Optional[str]) -> str:
+    """"विशेष>आईडीआर इंटरव्यूज" -> "आईडीआर इंटरव्यूज", folded; parent renames and -/space don't matter."""
+    return " ".join(fold_devanagari(str(c or "").split(">")[-1]).replace("-", " ").split())
+
+
 def article_series(
     title: Optional[str], categories: List[str], multimedia_type: Optional[str], series: List[Dict[str, Any]]
 ) -> List[str]:
     """Names of the series an article belongs to (headline regex, category or media type)."""
     folded = fold_devanagari(clean_title(title))
-    cats = set(categories or [])
+    cats = {category_leaf(c) for c in categories or []}
     out = []
     for sr in series:
         hit = (
             (sr.get("title_regex") and re.search(fold_devanagari(sr["title_regex"]), folded))
-            or (cats & set(sr.get("categories", [])))
+            or (cats & {category_leaf(c) for c in sr.get("categories", [])})
             or (sr.get("multimedia_type") and str(multimedia_type or "") == sr["multimedia_type"])
         )
         if hit:

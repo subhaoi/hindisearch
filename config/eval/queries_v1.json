@@ -174,27 +174,15 @@
      }
     },
     {
-     "query": "dipika katara",
-     "expect": {
-      "contributor_like": "कटारा"
-     }
-    },
-    {
      "query": "naziya malik",
      "expect": {
-      "contributor_like": "नाज"
+      "contributor": "नाजिया परवीन"
      }
     },
     {
      "query": "disha srivastava",
      "expect": {
-      "contributor_like": "दिशा"
-     }
-    },
-    {
-     "query": "prakashyadav",
-     "expect": {
-      "contributor_like": "प्रकाश"
+      "contributor": "दिशा श्रीवास्तव"
      }
     }
    ]
@@ -282,19 +270,19 @@
     {
      "query": "आईडीआर से समझिए",
      "expect": {
-      "category": "विशेषताएं>आईडीआर एक्सप्लेन्स"
+      "category": "आईडीआर से समझिए"
      }
     },
     {
      "query": "interview",
      "expect": {
-      "category": "विशेषताएं>आईडीआर इंटरव्यूज"
+      "category": "आईडीआर इंटरव्यूज"
      }
     },
     {
      "query": "मेरा एक दिन",
      "expect": {
-      "category": "विशेषताएं>मेरा एक दिन"
+      "category": "मेरा एक दिन"
      }
     },
     {

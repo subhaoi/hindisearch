@@ -1,10 +1,11 @@
 {
-  "note": "Series and formats people browse by name. An article belongs to a series if its headline matches title_regex (Devanagari, after nukta/chandrabindu folding), it has one of the categories, or its multimedia_type matches. A query containing a trigger is filtered to that series; the trigger words are removed from the rest of the query. Triggers in Latin letters are compared as phonetic keys, so spelling variants match. Triggers and misspellings come from the search logs.",
+  "note": "Series and formats people browse by name. An article belongs to a series if its headline matches title_regex (Devanagari, after nukta/chandrabindu folding), it has one of the categories (compared by the part after the last '>', so 'विशेष>मेरा एक दिन' and 'मेरा एक दिन' match), or its multimedia_type matches. A query containing a trigger is filtered to that series; the trigger words are removed from the rest of the query. Triggers in Latin letters are compared as phonetic keys, so spelling variants match. Triggers and misspellings come from the search logs.",
   "series": [
     {
       "name": "saral_kosh",
       "label": "सरल कोश",
       "title_regex": "सरल[- ]?कोश|शब्दावली|\\d+ शब्द|प्रचलित शब्द",
+      "categories": ["सरल-कोश"],
       "triggers": ["सरल कोश", "सरलकोश", "सरल-कोश", "सरल शब्दों में", "शब्दावली", "भाषाशब्दावली", "जार्गन", "saral kosh", "saral kodh", "saral kosh idr", "shabdavali", "glossary", "jargon"]
     },
     {
@@ -23,20 +24,20 @@
       "name": "interviews",
       "label": "आईडीआर इंटरव्यूज",
       "title_regex": "इंटरव्यू",
-      "categories": ["विशेषताएं>आईडीआर इंटरव्यूज"],
+      "categories": ["आईडीआर इंटरव्यूज"],
       "triggers": ["आईडीआर इंटरव्यूज", "इंटरव्यूज", "इंटरव्यू", "साक्षात्कार", "interview", "interviews"]
     },
     {
       "name": "explainers",
       "label": "आईडीआर से समझिए",
       "title_regex": "^आईडीआर से समझिए|^आईडीआर एक्सप्लेन्स",
-      "categories": ["विशेषताएं>आईडीआर एक्सप्लेन्स"],
+      "categories": ["आईडीआर से समझिए", "आईडीआर एक्सप्लेन्स"],
       "triggers": ["आईडीआर से समझिए", "आईडीआर एक्सप्लेन्स", "idr explains", "idr se samjhiye", "explainer", "explainers"]
     },
     {
       "name": "mera_ek_din",
       "label": "मेरा एक दिन",
-      "categories": ["विशेषताएं>मेरा एक दिन"],
+      "categories": ["मेरा एक दिन"],
       "triggers": ["मेरा एक दिन", "mera ek din", "day in the life"]
     },
     {
