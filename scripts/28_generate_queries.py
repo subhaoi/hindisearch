@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -102,6 +103,23 @@ def clean_queries(raw: List[Dict[str, Any]], title: str, max_words: int) -> List
     return out
 
 
+def generate(row: Dict[str, Any], args: argparse.Namespace) -> List[Dict[str, str]]:
+    r = requests.post(
+        f"{args.ollama.rstrip('/')}/api/generate",
+        json={
+            "model": args.model,
+            "prompt": build_prompt(row, args.max_chars),
+            "format": SCHEMA,
+            "stream": False,
+            "options": {"temperature": 0.7, "num_ctx": 8192},
+        },
+        timeout=900,
+    )
+    r.raise_for_status()
+    raw = json.loads(r.json().get("response") or "{}").get("queries", [])
+    return clean_queries(raw, as_text(row.get("title_hi")), args.max_words)
+
+
 def done_ids(out_path: Path) -> Set[str]:
     if not out_path.exists():
         return set()
@@ -124,6 +142,7 @@ def main() -> None:
       ollama pull gemma3:4b
       python scripts/28_generate_queries.py --limit 5        # try it, check the output
       python scripts/28_generate_queries.py                  # everything (runs for hours)
+      OLLAMA_NUM_PARALLEL=4 ollama serve & ... --workers 4   # on a GPU
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--articles", default="data/final/articles_canonical.parquet")
@@ -134,6 +153,8 @@ def main() -> None:
     ap.add_argument("--max-words", type=int, default=12, help="Drop longer queries")
     ap.add_argument("--limit", type=int, default=0, help="Only this many new articles (0 = all)")
     ap.add_argument("--newest-first", action="store_true", help="Start with the newest articles")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="Parallel requests; on a GPU use 4 and start Ollama with OLLAMA_NUM_PARALLEL=4")
     args = ap.parse_args()
 
     df = read_parquet(Path(args.articles))
@@ -149,36 +170,33 @@ def main() -> None:
 
     started = time.time()
     n_queries = 0
-    with out_path.open("a", encoding="utf-8") as f:
-        for i, row in enumerate(todo, start=1):
-            t0 = time.time()
-            try:
-                r = requests.post(
-                    f"{args.ollama.rstrip('/')}/api/generate",
-                    json={
-                        "model": args.model,
-                        "prompt": build_prompt(row, args.max_chars),
-                        "format": SCHEMA,
-                        "stream": False,
-                        "options": {"temperature": 0.7, "num_ctx": 8192},
-                    },
-                    timeout=900,
-                )
-                r.raise_for_status()
-                raw = json.loads(r.json().get("response") or "{}").get("queries", [])
-            except (requests.RequestException, ValueError) as e:
-                print(f"  {row.get('id')}: skipped ({e}); re-run to retry")
-                continue
-            qs = clean_queries(raw, as_text(row.get("title_hi")), args.max_words)
-            now = datetime.now(timezone.utc).isoformat()
-            for q in qs:
-                f.write(json.dumps({"article_id": str(row.get("id")), **q, "model": args.model, "created_at": now},
-                                   ensure_ascii=False) + "\n")
-            f.flush()
-            n_queries += len(qs)
-            per = (time.time() - started) / i
-            print(f"[{i}/{len(todo)}] {row.get('id')}: {len(qs)} queries in {time.time() - t0:.0f}s"
-                  f" | about {per * (len(todo) - i) / 3600:.1f} h left")
+    pool = ThreadPoolExecutor(max_workers=max(1, args.workers))
+    futures = {pool.submit(generate, row, args): row for row in todo}
+    try:
+        with out_path.open("a", encoding="utf-8") as f:
+            for i, fut in enumerate(as_completed(futures), start=1):
+                row = futures[fut]
+                try:
+                    qs = fut.result()
+                except (requests.RequestException, ValueError) as e:
+                    print(f"  {row.get('id')}: skipped ({e}); re-run to retry")
+                    continue
+                now = datetime.now(timezone.utc).isoformat()
+                # Only this thread writes; workers just call the model
+                for q in qs:
+                    f.write(json.dumps({"article_id": str(row.get("id")), **q, "model": args.model, "created_at": now},
+                                       ensure_ascii=False) + "\n")
+                f.flush()
+                n_queries += len(qs)
+                per = (time.time() - started) / i
+                print(f"[{i}/{len(todo)}] {row.get('id')}: {len(qs)} queries"
+                      f" | about {per * (len(todo) - i) / 3600:.1f} h left", flush=True)
+    except KeyboardInterrupt:
+        # Don't wait for the queued articles; finished ones are already saved
+        pool.shutdown(wait=False, cancel_futures=True)
+        print("Stopped. Re-run the same command to continue.")
+        return
+    pool.shutdown()
     print(f"Done: {n_queries} queries written to {out_path}")
 
 
