@@ -24,7 +24,8 @@ from scripts.utils import (
     clean_title, query_tokens, roman_query_to_devanagari, iso_to_epoch_seconds,
     location_patterns, derive_locations,
     load_series, article_series, detect_series, classify_query, MAX_QUERY_TOKENS,
-    english_glossary, apply_glossary,
+    english_glossary, apply_glossary, fold_devanagari, hindi_stem, roman_key,
+    DEVANAGARI_RE, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS,
 )
 from .ranker_v1 import ranker_v1
 from .ranker_v2 import ranker_v2, load_weights
@@ -322,6 +323,36 @@ def get_article_ids_with(field: str, values: List[str]) -> List[str]:
     ]
 
 
+# Words around a topic that say nothing about it ("articles about nrega", "water issues in india")
+_QUERY_FILLER = {
+    "article", "articles", "story", "stories", "news", "issue", "issues", "problem", "problems",
+    "trend", "trends", "india", "indian", "related", "regarding", "idr", "lekh",
+}
+
+
+def glossary_hindi_terms(query: str) -> str:
+    """
+    The Hindi form of a roman/mixed query when the glossary covers all of it except stopwords,
+    filler and numbers ("CSR" -> सीएसआर, "articles about nrega" -> मनरेगा, "NEP 2020" -> शिक्षा नीति).
+    Empty when part of the query is unknown ("frontline workers" would become just मजदूर).
+    """
+    toks = query_tokens(apply_glossary(query, glossary))
+    hindi = [t for t in toks if DEVANAGARI_RE.search(t)]
+    unknown = [
+        t for t in toks
+        if not DEVANAGARI_RE.search(t) and not t.isdigit() and t not in _QUERY_FILLER
+        and roman_key(t) not in ROMAN_STOPWORD_KEYS
+    ]
+    if not hindi or unknown:
+        return ""
+    return " ".join(fold_devanagari(t) for t in hindi if t not in HINDI_STOPWORDS)
+
+
+# Weight for "the query is an author's name" (स्नेहा, unnayan): strong enough to put that
+# author's articles first, which the default contributor boost is not
+NAME_QUERY_CONTRIBUTOR_WEIGHT = 1.5
+
+
 def build_semantic_query(raw_query: str, mode: str, strip_tokens: List[str]) -> str:
     """
     Text to embed: the raw query minus hard-matched entity words (the Qdrant filter already
@@ -393,6 +424,12 @@ def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Di
         # English queries against the English translations of titles/summaries
         # (27_translate_articles.py; Typesense stems these fields)
         searches.append(params(canon["q_en"], "title_en,summary_en", "3,1", "1"))
+    if canon["q"] != "*" and canon.get("q_gloss"):
+        # Known English terms in their Hindi form ("csr" -> सीएसआर, "nrega" -> मनरेगा): headlines
+        # use the Hindi spelling, which the roman fields can't match
+        searches.append(params(canon["q_gloss"], "title_hi,seo_title_hi,summary_hi,content_hi", "6,4,3,1", "0"))
+        searches.append(params(" ".join(hindi_stem(t) for t in canon["q_gloss"].split()),
+                               "title_stem,summary_stem,content_stem", "6,3,1", "0"))
     if canon["q"] != "*" and mode == "dev" and canon.get("q_stem") and canon["q_stem"] != canon["q"]:
         # Stems are short; typo tolerance on them mostly adds noise
         searches.append(params(canon["q_stem"], "title_stem,summary_stem,content_stem", "6,3,1", "0"))
@@ -554,6 +591,9 @@ def search(req: SearchRequest) -> SearchResponse:
         end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
         extra_filters.append(f"published_ts:>={start} && published_ts:<{end}")
         series_ids = {a for a, m in articles_meta.items() if start <= int(m.get("published_ts") or 0) < end}
+        if not series_ids:
+            # No articles from that year yet ("2027"): show the newest articles instead of an empty page
+            extra_filters, series_ids = [], None
         query_text = ""
     else:
         # "फोटो निबंध जलवायु" -> filter to photo essays, search "जलवायु" within them
@@ -569,6 +609,8 @@ def search(req: SearchRequest) -> SearchResponse:
     else:
         canon = canonicalize_query_for_search(query_text)
         mode = canon["mode"]
+        if mode in ("roman", "mixed"):
+            canon["q_gloss"] = glossary_hindi_terms(query_text)
     query_used = canon["q"]  # lexical/canonicalized
 
     entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
@@ -613,7 +655,10 @@ def search(req: SearchRequest) -> SearchResponse:
         ranked = ranker_v1(candidates, tokenize_query(query_used), now_ts=now_ts,
                            has_author_entity=has_author_entity, has_location_entity=has_location_entity)
     else:
-        ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=ranker_v2_weights)
+        weights = ranker_v2_weights
+        if entity.get("name_query"):
+            weights = {**weights, "match_contributor": max(weights.get("match_contributor", 0.0), NAME_QUERY_CONTRIBUTOR_WEIGHT)}
+        ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=weights)
 
     per_page = max(1, int(req.per_page))
     page = max(1, int(req.page))
@@ -676,6 +721,8 @@ def search(req: SearchRequest) -> SearchResponse:
                 "query_semantic_used": query_semantic,
                 "query_kind": kind,
                 "series": series,
+                "name_query": bool(entity.get("name_query")),
+                "query_gloss": canon.get("q_gloss"),
             },
         )
 

@@ -1,6 +1,6 @@
 {
  "version": "eval_rules_v1",
- "source": "search logs 2025-12-13..2026-09-29, curated",
+ "source": "search logs 2025-12-13..2026-10-14, curated",
  "note": "Only queries whose right answers can be computed from the articles (titles, authors, series). Resolved against the current data at run time, so they stay valid as articles are added. No LLM or paid service involved.",
  "sets": {
   "known_item": {
@@ -184,6 +184,48 @@
      "expect": {
       "contributor": "दिशा श्रीवास्तव"
      }
+    },
+    {
+     "query": "third eye",
+     "expect": {
+      "contributor": "द थर्ड आई"
+     }
+    },
+    {
+     "query": "थर्ड आई",
+     "expect": {
+      "contributor": "द थर्ड आई"
+     }
+    },
+    {
+     "query": "थर्ड आय",
+     "expect": {
+      "contributor": "द थर्ड आई"
+     }
+    },
+    {
+     "query": "स्नेहा",
+     "expect": {
+      "contributor_like": "स्नेहा"
+     }
+    },
+    {
+     "query": "अनुराग",
+     "expect": {
+      "contributor_like": "अनुराग"
+     }
+    },
+    {
+     "query": "उन्नयन",
+     "expect": {
+      "contributor": "कुमार उन्नयन"
+     }
+    },
+    {
+     "query": "चन्द्र प्रताप",
+     "expect": {
+      "contributor_like": "चंद्र प्रताप"
+     }
     }
    ]
   },
@@ -289,6 +331,36 @@
      "query": "video",
      "expect": {
       "multimedia_type": "video"
+     }
+    }
+   ]
+  },
+  "topic": {
+   "why": "English acronyms and terms whose articles have Hindi headlines (CSR -> सीएसआर). The right answers are articles with the Hindi term in the headline.",
+   "queries": [
+    {
+     "query": "CSR",
+     "expect": {
+      "title_contains_any": [
+       "सीएसआर"
+      ]
+     }
+    },
+    {
+     "query": "NEP 2020",
+     "expect": {
+      "title_contains_any": [
+       "शिक्षा नीति"
+      ]
+     }
+    },
+    {
+     "query": "articles about nrega",
+     "expect": {
+      "title_contains_any": [
+       "मनरेगा",
+       "नरेगा"
+      ]
      }
     }
    ]

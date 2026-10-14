@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
-from scripts.utils import query_tokens, text_to_key, fold_devanagari, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS
+from scripts.utils import query_tokens, text_to_key, loose_fold, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS
 
 
 ENTITY_FIELDS = ["locations_norm", "contributors_norm", "categories_norm", "tags_norm"]
@@ -51,11 +51,14 @@ def detect_entities(
         hard:            {field: [values...]}     strong matches used to filter
         filter_by_auto:  str|None                 Typesense filter built from `hard`
         strip_tokens:    [query tokens]           tokens covered by `hard` matches
+        name_query:      bool                     the whole query is part of an author's name
       }
     """
-    # Folded so ज़/ज and ँ/ं spellings match the same gazetteer value
-    toks = [fold_devanagari(t) for t in query_tokens(query_full)]
-    tok_keys = [text_to_key(t) for t in toks]
+    # Loosely folded so spelling variants match the same gazetteer value
+    # (ज़/ज, ँ/ं, चन्द्र/चंद्र, ी/ि)
+    raw_toks = query_tokens(query_full)
+    toks = [loose_fold(t) for t in raw_toks]
+    tok_keys = [text_to_key(t) for t in raw_toks]
     q_raw = " " + " ".join(toks) + " "
     q_key = " " + " ".join(k for k in tok_keys if k) + " "
     tok_set = set(toks)
@@ -67,6 +70,7 @@ def detect_entities(
     conf: Dict[str, int] = {}
     hard: Dict[str, List[str]] = {}
     strip: Set[int] = set()
+    name_query = False
 
     for field in ENTITY_FIELDS:
         g = gazetteer.get(field) or {}
@@ -83,7 +87,7 @@ def detect_entities(
         for v, mt, keys, dc in zip(values, texts, keys_list, counts):
             if len(got) >= max_per_field:
                 break
-            mt_toks = [fold_devanagari(t) for t in query_tokens(mt)]
+            mt_toks = [loose_fold(t) for t in query_tokens(mt)]
             if not mt_toks:
                 continue
             mt_norm = " ".join(mt_toks)
@@ -135,11 +139,12 @@ def detect_entities(
             # "pani"/पानी vs पन्नी)
             partial = [
                 v for v, mt, keys in zip(values, texts, keys_list)
-                if (not latin and t in {fold_devanagari(x) for x in query_tokens(mt)})
+                if (not latin and t in {loose_fold(x) for x in query_tokens(mt)})
                 or (latin and len(tk) >= 5 and tk in {p for k in keys for p in k.split()})
             ]
             if 1 <= len(partial) <= max_per_field:
                 got, score = partial, 1
+                name_query = True
 
         if got:
             matches[field] = got
@@ -159,5 +164,6 @@ def detect_entities(
         "confidence": conf,
         "hard": hard,
         "filter_by_auto": " && ".join(filters) if filters else None,
-        "strip_tokens": [toks[i] for i in sorted(strip)],
+        "strip_tokens": [raw_toks[i] for i in sorted(strip)],
+        "name_query": name_query,
     }

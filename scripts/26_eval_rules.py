@@ -67,7 +67,7 @@ def main() -> None:
       ...deploy a change, restart the API...
       python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.json
 
-    known_item: MRR (1.0 = the article is #1). author/series: precision@10.
+    known_item: MRR (1.0 = the article is #1). author/series/topic: precision@10.
     no_answer: how many results come back for off-topic/junk queries (lower is better).
     """
     ap = argparse.ArgumentParser()
@@ -114,7 +114,7 @@ def main() -> None:
                 print(f"   skip  {query}  ({rec['skipped']})")
             elif set_name == "known_item" and m["rank"] != 1:
                 print(f"   rank {m['rank'] or '-':>3}  {query}")
-            elif set_name in ("author", "series_format") and m["p@10"] < 0.5:
+            elif set_name in ("author", "series_format", "topic") and m["p@10"] < 0.5:
                 print(f"   p@10 {m['p@10']:.2f}  {query}")
 
     if args.compare:

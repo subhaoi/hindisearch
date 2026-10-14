@@ -50,6 +50,7 @@ def main() -> None:
     ap.add_argument("--root", default=".")
     ap.add_argument("--out", default="data/phase_45/gazetteer_v1.json")
     ap.add_argument("--aliases", default="config/location_aliases.json", help="Extra names per location value")
+    ap.add_argument("--name-aliases", default="config/contributor_aliases.json", help="Extra names per contributor value")
     args = ap.parse_args()
 
     paths = Paths(root=Path(args.root).resolve())
@@ -61,6 +62,9 @@ def main() -> None:
     alias_path = Path(args.aliases)
     if alias_path.exists():
         aliases = json.loads(alias_path.read_text(encoding="utf-8")).get("aliases", {})
+    name_aliases: Dict[str, List[str]] = {}
+    if Path(args.name_aliases).exists():
+        name_aliases = json.loads(Path(args.name_aliases).read_text(encoding="utf-8")).get("aliases", {})
 
     # Locations an article is about = tags + mentions (see utils.derive_locations). Counted
     # on that set so "broad location" (> 20% of articles) matches what the filter would use.
@@ -75,6 +79,7 @@ def main() -> None:
     gaz: Dict[str, Any] = {"corpus_size": int(len(df))}
     for field in ["locations_norm", "categories_norm", "tags_norm", "contributors_norm"]:
         items = collect_unique(df, field)
+        field_aliases = name_aliases if field == "contributors_norm" else aliases
         doc_count: Dict[str, int] = {}
         per_article = locations_all if field == "locations_norm" else (df[field].tolist() if field in df.columns else [])
         for v in per_article:
@@ -88,7 +93,7 @@ def main() -> None:
             # Phonetic match keys (with/without schwa deletion) so Roman and Devanagari
             # queries both match: "bihar" / "बिहार" -> "bihar"
             "keys": [
-                list(dict.fromkeys(k for name in [match_text(x)] + aliases.get(x, []) for k in text_to_key_variants(name)))
+                list(dict.fromkeys(k for name in [match_text(x)] + field_aliases.get(x, []) for k in text_to_key_variants(name)))
                 for x in items
             ],
             "doc_count": [doc_count.get(x, 0) for x in items],

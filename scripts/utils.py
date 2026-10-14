@@ -494,8 +494,9 @@ _ROMAN_KEY_RULES = [
     (re.compile(r"ee"), "i"),
     (re.compile(r"oo"), "u"),
     (re.compile(r"ou"), "au"),
-    # y before e after a vowel is optional (mahilaye/mahilae, gaye/gae, liye/lie)
-    (re.compile(r"(?<=[aeiou])y(?=e)"), ""),
+    # y before e after a or i is optional (mahilaye/mahilae, gaye/gae, liye/lie); not after
+    # e, so "eye" keeps its y
+    (re.compile(r"(?<=[ai])y(?=e)"), ""),
     # ai/e and au/o are typed interchangeably (kaise/kese, yaun/yon, aur/or);
     # collapse long vowels first so भाई (bhaaee) and "bhai" meet
     (re.compile(r"([aeiou])\1+"), r"\1"),
@@ -605,18 +606,21 @@ def detect_series(query: str, series: List[Dict[str, Any]]) -> Tuple[List[str], 
 _YEAR_RE = re.compile(r"^\s*((?:19|20)\d\d)\s*$")
 # Exploit probes / pasted markup seen in the logs (/index/\think\app/invokefunction, @import url(...))
 _PROBE_RE = re.compile(r"(://|^\s*/|\\|@import|<\s*script|\.php\b|\bunion\s+select\b)", re.IGNORECASE)
+# A single code-like token sent by crawlers and broken forms (rztype_0, _removed_)
+_CODE_TOKEN_RE = re.compile(r"^\s*\S*_\S*\s*$")
 MAX_QUERY_TOKENS = 30
 
 
 def classify_query(q: str) -> Tuple[str, Optional[int]]:
     """
-    ("year", 2026) for a bare year, ("junk", None) for probes and strings with no letters,
+    ("year", 2026) for a bare year, ("junk", None) for probes, code-like tokens and strings
+    with no letters,
     else ("search", None).
     """
     m = _YEAR_RE.match(q or "")
     if m:
         return "year", int(m.group(1))
-    if _PROBE_RE.search(q or "") or not reg.search(r"\p{L}", q or ""):
+    if _PROBE_RE.search(q or "") or _CODE_TOKEN_RE.match(q or "") or not reg.search(r"\p{L}", q or ""):
         return "junk", None
     return "search", None
 

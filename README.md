@@ -402,10 +402,11 @@ Set `RETRIEVAL_VERSION=retrieval_v3` in `.env` so query logs before/after are di
 Rule-based, no paid services. Derived from 3,920 logged searches (Dec 2025 - Sep 2026).
 
 - **Series and formats** (`config/series.json`): "सरल कोश", "फोटो निबंध" (and the common misspelling "फोटो निंबंध"), "photo story", "हल्का-फुल्का", interviews, explainers, "मेरा एक दिन", video, audio. A query naming a series is filtered to it; "फोटो निबंध जलवायु" searches "जलवायु" within photo essays; the series name alone lists the series newest first. Add series or triggers by editing the JSON.
-- **Synonyms** (`config/synonyms_v1.json`, 86 groups): acronyms as searched (एफपीओ, एफआरए, fcra, pvtg, shg, …) linked to the forms articles use, मनरेगा/नरेगा with the VB-G RAM G spellings, and English sector terms ("labour law" -> श्रम कानून). The English terms also put English queries' semantic search into Hindi.
-- **Spelling**: stemmed fields also merge आन्दोलन/आंदोलन (nasal conjunct vs anusvara) and long/short i and u (घरेलु/घरेलू); Latin-letter keys merge m/n before consonants (samvidhan/sanvidhan) and ai/e, au/o (kaise/kese, yaun/yon).
-- **Authors by first name**: a one-word query that is part of an author's name ("इंद्रेश", "unnayan") boosts that author's articles.
-- **Non-searches**: a bare year ("2026") lists that year's articles; exploit probes and strings without letters return nothing and are not logged; pasted paragraphs are cut to 30 words.
+- **Synonyms** (`config/synonyms_v1.json`, 87 groups): acronyms as searched (एफपीओ, एफआरए, fcra, pvtg, shg, nep, …) linked to the forms articles use, मनरेगा/नरेगा with the VB-G RAM G spellings, and English sector terms ("labour law" -> श्रम कानून). The English terms also put English queries' semantic search into Hindi, and when they cover the whole query ("CSR", "articles about nrega") the keyword search also runs on the Hindi form, since headlines use it (सीएसआर, मनरेगा).
+- **Spelling**: stemmed fields also merge आन्दोलन/आंदोलन (nasal conjunct vs anusvara), long/short i and u (घरेलु/घरेलू), doubled consonants (बत्तख/बतख) and word-final ये/ए (महिलायें/महिलाएं); Latin-letter keys merge m/n before consonants (samvidhan/sanvidhan), ai/e, au/o (kaise/kese, yaun/yon) and optional y (mahilaye/mahilae). Author and place names are matched with the same tolerance (चन्द्र/चंद्र).
+- **Authors by first name**: a one-word query that is part of an author's name ("इंद्रेश", "unnayan") puts that author's articles first.
+- **Other names for authors and partners**: `config/contributor_aliases.json` (e.g. "third eye", "थर्ड आय" -> द थर्ड आई). Add names people search for; rebuild the gazetteer (`20_build_gazetteer.py`) and restart the API.
+- **Non-searches**: a bare year ("2026") lists that year's articles, and a year with no articles yet ("2027") lists the newest; exploit probes, code-like tokens from crawlers (`rztype_0`) and strings without letters return nothing and are not logged; pasted paragraphs are cut to 30 words.
 
 Measure with the free check (known titles, authors, series; answers computed from the articles):
 

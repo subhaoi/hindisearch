@@ -1,0 +1,6 @@
+{
+  "note": "Extra names for contributor values (authors and partner organisations), as people type them in searches. Keys must match contributors_norm values exactly. Each alias is matched as a phrase via phonetic keys, so spelling variants of an alias match too. Add names from the search logs.",
+  "aliases": {
+    "द थर्ड आई": ["the third eye", "third eye", "थर्ड आई", "थर्ड आय", "थर्ड ऑय"]
+  }
+}
