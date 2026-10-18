@@ -421,7 +421,7 @@ python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.jso
 ## Admin panel feed
 
 The IDR tools admin panel (`https://tools.idronline.org/admin/`, in the email_format_tool repo)
-shows a Hindi Search section from `GET /api/usage` (`scripts/_phase4/usage_feed.py`):
+shows this search on its Search tab (`/admin/search`) from `GET /api/usage` (`scripts/_phase4/usage_feed.py`):
 
 - searches per day, the mix (Hindi / Hinglish / English, years, series, authors, places), how long searches take
 - the most searched queries, and searches whose words matched 5 or fewer articles (worth a look:
