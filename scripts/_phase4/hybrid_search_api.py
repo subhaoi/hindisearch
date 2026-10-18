@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 import typesense
@@ -28,9 +28,13 @@ from scripts.utils import (
     DEVANAGARI_RE, HINDI_STOPWORDS, ROMAN_STOPWORD_KEYS,
 )
 from .ranker_v1 import ranker_v1
-from .ranker_v2 import ranker_v2, load_weights
-from .db import get_engine, ensure_schema, insert_query, insert_candidates, insert_label
+from .ranker_v2 import ranker_v2, load_weights, WEIGHTS_PATH
+from .db import (
+    get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
+    searches_since, errors_since, label_counts,
+)
 from .query_entities import detect_entities
+from . import usage_feed
 
 
 load_dotenv()
@@ -568,6 +572,18 @@ def health() -> Dict[str, Any]:
 
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest) -> SearchResponse:
+    started = time.perf_counter()
+    try:
+        return run_search(req, started)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Shown in the admin panel's Problems table
+        insert_error(engine, f"{type(e).__name__}: {e}", round(time.perf_counter() - started, 2))
+        raise
+
+
+def run_search(req: SearchRequest, started: float) -> SearchResponse:
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="Empty query")
     ranker_version = req.ranker or RANKER_VERSION
@@ -723,6 +739,7 @@ def search(req: SearchRequest) -> SearchResponse:
                 "series": series,
                 "name_query": bool(entity.get("name_query")),
                 "query_gloss": canon.get("q_gloss"),
+                "took_s": round(time.perf_counter() - started, 2),
             },
         )
 
@@ -761,6 +778,39 @@ def search(req: SearchRequest) -> SearchResponse:
         per_page=per_page,
         results=hits,
     )
+
+
+@app.get("/api/usage")
+def api_usage(since: float = 0, days: int = 30, x_idr_usage_token: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Usage, searched queries and health for the IDR tools admin panel (see usage_feed.py)."""
+    if not usage_feed.token_ok(x_idr_usage_token):
+        raise HTTPException(status_code=403, detail="forbidden")
+    searches = searches_since(engine, since)
+
+    def safe(fn):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - one missing number must not hide the rest
+            return None
+
+    return {
+        "events": usage_feed.to_events(searches, errors_since(engine, since)),
+        "queries": usage_feed.top_queries(searches, time.time() - max(1, days) * 86400),
+        "health": {
+            "version": usage_feed.code_version(root),
+            "articles": len(articles_meta),
+            "typesense_docs": safe(lambda: ts.collections[TS_COLLECTION].retrieve()["num_documents"]),
+            "qdrant_articles": safe(lambda: qd.count(QCOL_ART, exact=True).count),
+            "qdrant_chunks": safe(lambda: qd.count(QCOL_CHK, exact=True).count),
+            "refresh": usage_feed.last_refresh(root),
+            "eval": usage_feed.latest_eval(root),
+            "labels": {**(safe(lambda: label_counts(engine, RANKER_VERSION)) or {}), "needed": usage_feed.MIN_LABELS},
+            "ranker": RANKER_VERSION,
+            "weights_learned": WEIGHTS_PATH.exists(),
+            "memory": usage_feed.memory(),
+            **usage_feed.disk(root),
+        },
+    }
 
 
 @app.post("/label")

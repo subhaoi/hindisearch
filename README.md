@@ -418,6 +418,30 @@ python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.jso
 
 ---
 
+## Admin panel feed
+
+The IDR tools admin panel (`https://tools.idronline.org/admin/`, in the email_format_tool repo)
+shows a Hindi Search section from `GET /api/usage` (`scripts/_phase4/usage_feed.py`):
+
+- searches per day, the mix (Hindi / Hinglish / English, years, series, authors, places), how long searches take
+- the most searched queries, and searches whose words matched 5 or fewer articles (worth a look:
+  often a rare name, sometimes a missing synonym or alias). Queries that look like an email
+  address or phone number are never sent
+- searches that crashed (`search_errors` table: the error only)
+- health: articles vs. Typesense/Qdrant counts, last weekly refresh, latest `runs/*.json` test
+  scores, feedback labels vs. the 200 the ranker needs, memory, disk, code version
+
+It answers only with the `X-IDR-Usage-Token` header the panel derives from the shared `SECRET_KEY`.
+That key lives in `~/idr-tools.env` on the server (never in `.env`, which is in git); the systemd
+unit reads it with `EnvironmentFile=`. After changing the unit:
+
+```bash
+sudo cp deploy/hindisearch-api.service /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo systemctl restart hindisearch-api
+```
+
+---
+
 ## Troubleshooting & tips
 
 - Logs (`logs/*.json`) are designed for quick sanity checks—skim them after each phase.

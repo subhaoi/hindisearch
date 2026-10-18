@@ -70,6 +70,16 @@ DDL_STATEMENTS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_labels_query_id ON labels(query_id)",
+    "CREATE INDEX IF NOT EXISTS idx_query_log_created_at ON query_log(created_at)",
+    # Searches that crashed, for the admin panel's Problems table (the error only, no query text)
+    """
+    CREATE TABLE IF NOT EXISTS search_errors (
+      id BIGSERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      seconds DOUBLE PRECISION NULL,
+      error TEXT NOT NULL
+    )
+    """,
 ]
 
 
@@ -174,3 +184,56 @@ def insert_label(engine: Engine, query_id: int, article_id: Optional[str], label
             stmt,
             {"qid": query_id, "aid": article_id, "lab": int(label), "note": note},
         )
+
+
+def insert_error(engine: Engine, error: str, seconds: Optional[float]) -> None:
+    """Never raises: a failing log write must not hide the original error."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO search_errors(seconds, error) VALUES (:s, :e)"),
+                         {"s": seconds, "e": str(error)[:500]})
+    except Exception as e:  # noqa: BLE001
+        print(f"[search_errors] could not record: {type(e).__name__}: {e}")
+
+
+# --------- Read side, for the admin panel feed (usage_feed.py) ---------
+
+def searches_since(engine: Engine, since_ts: float) -> List[Dict[str, Any]]:
+    """Logged searches since a unix time, oldest first: ts, query_raw, query_mode, meta."""
+    stmt = text(
+        """
+        SELECT extract(epoch FROM created_at) AS ts, query_raw, query_mode, meta
+        FROM query_log WHERE created_at >= to_timestamp(:since) ORDER BY created_at
+        """
+    )
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(stmt, {"since": since_ts})]
+
+
+def errors_since(engine: Engine, since_ts: float) -> List[Dict[str, Any]]:
+    stmt = text(
+        """
+        SELECT extract(epoch FROM created_at) AS ts, seconds, error
+        FROM search_errors WHERE created_at >= to_timestamp(:since) ORDER BY created_at
+        """
+    )
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(stmt, {"since": since_ts})]
+
+
+def label_counts(engine: Engine, ranker: str) -> Dict[str, int]:
+    """All feedback clicks, and the labelled results the ranker can train on (as 22_train_ranker counts them)."""
+    stmt = text(
+        """
+        SELECT (SELECT count(*) FROM labels) AS total,
+               (SELECT count(*) FROM (
+                  SELECT DISTINCT l.query_id, l.article_id
+                  FROM labels l
+                  JOIN query_log q ON q.id = l.query_id
+                  JOIN candidate_log c ON c.query_id = l.query_id AND c.article_id = l.article_id
+                  WHERE l.article_id IS NOT NULL AND q.ranker_version = :ranker) t) AS trainable
+        """
+    )
+    with engine.connect() as conn:
+        r = conn.execute(stmt, {"ranker": ranker}).fetchone()
+        return {"total": int(r[0]), "trainable": int(r[1])}

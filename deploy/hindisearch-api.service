@@ -12,6 +12,9 @@ Wants=network-online.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/hindisearch
+# SECRET_KEY shared with the IDR tools (same file Image Search reads); it lets the admin panel
+# at tools.idronline.org/admin/ read /api/usage. Kept out of git, unlike .env.
+EnvironmentFile=-/home/ubuntu/idr-tools.env
 ExecStart=/home/ubuntu/hindisearch/.venv/bin/uvicorn scripts._phase4.hybrid_search_api:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=10
