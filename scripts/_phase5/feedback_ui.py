@@ -364,7 +364,7 @@ HTML = """
       const q = document.getElementById("q").value.trim();
       if (!q) return;
 
-      const res = await fetch("/proxy_search", {
+      const res = await fetch("proxy_search", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({query:q, per_page:50, explain:false})
@@ -387,7 +387,7 @@ HTML = """
 
     async function labelItem(articleId, label, note) {
       if (!lastQueryId) return;
-      await fetch("/proxy_label", {
+      await fetch("proxy_label", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
@@ -408,7 +408,7 @@ HTML = """
       statusEl.textContent = "Saving…";
 
       try {
-        const res = await fetch("/proxy_label", {
+        const res = await fetch("proxy_label", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({
@@ -441,7 +441,7 @@ HTML = """
       const note = prompt("Optional note (what did you expect?)") || null;
 
       try {
-        const res = await fetch("/proxy_label_query", {
+        const res = await fetch("proxy_label_query", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({
