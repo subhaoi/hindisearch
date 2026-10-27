@@ -19,7 +19,14 @@ with the trained one; 42% for what readers actually got before this month's fixe
 
 **Deployed 27 October, 22:20-22:40:** step 1 (code, speed fixes) and step 3 (English site:
 API at `https://api.idronline.org/en/`, password-protected test page at `/en-test/`). Hindi still
-runs the live model; the trained model (step 2) waits for your go-ahead.
+switched to the trained model at 22:57 (step 2, `deploy/hindi_model_switch.sh apply`).
+
+Measured on the live server, same 50 test searches (log off), before and after the switch:
+median 604 → **167 ms**, slowest 10% 1.3 → 0.8 s, average 807 → 361 ms. Hand-made test set
+(`runs/eval_before_model_switch.json`, `..._after_...`): known items better (three move up),
+authors 98% → 93% (one name, "चन्द्र प्रताप", already weak, now missing), series unchanged.
+Hindi API memory 2.3 → 1.7 GB (less saving than estimated: libraries and data dominate). The
+`*_v1` collections stay for rollback; drop them after a quiet week (~0.3-0.4 GB).
 
 Tested and not adopted (details below): a reranker (+4 points, too slow for the t3 server),
 learned ranking weights and embedding Hinglish as typed (no gain).
@@ -30,9 +37,8 @@ Done on 27 October: `multisite` merged into `main`; step 1 (speed fixes) and ste
 site) deployed. Still open:
 
 1. **Tester login** for `/en-test/` (one command, under "Deploy", step 3), then share it.
-2. **Switch Hindi to the trained model** after a day or two of step timings from step 1, so
-   the before/after is visible: `deploy/hindi_model_switch.sh apply` (rolls back by itself if
-   its test searches fail; `rollback` undoes it any time).
+2. **Hindi trained model: switched 27 October 22:57.** Undo any time with
+   `bash deploy/hindi_model_switch.sh rollback`; drop the `*_v1` collections after a quiet week.
 3. **English WP All Export links** for the English weekly refresh, and the admin panel's
    English tab (`ENGLISH_SEARCH_USAGE_URL=https://api.idronline.org/en/api/usage` on the tools server).
 4. **Server**: stay on t3.large after the model switch and watch the CPU credit balance; if it
