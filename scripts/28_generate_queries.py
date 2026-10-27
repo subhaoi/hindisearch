@@ -50,23 +50,6 @@ LANGS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def schema(styles: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "queries": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"q": {"type": "string"}, "style": {"type": "string", "enum": list(styles)}},
-                    "required": ["q", "style"],
-                },
-            }
-        },
-        "required": ["queries"],
-    }
-
-
 def as_text(v: Any) -> str:
     return "" if is_nullish(v) else str(v).strip()
 
@@ -135,9 +118,11 @@ def generate(row: Dict[str, Any], args: argparse.Namespace) -> List[Dict[str, st
         json={
             "model": args.model,
             "prompt": build_prompt(row, args.max_chars, LANGS[args.lang]),
-            "format": schema(LANGS[args.lang]["styles"]),
+            # Plain JSON mode: a full JSON-schema grammar makes Gemma (262k-word vocabulary) crawl
+            # on the CPU-side sampler; styles are checked in clean_queries instead
+            "format": "json",
             "stream": False,
-            "options": {"temperature": 0.7, "num_ctx": 8192},
+            "options": {"temperature": 0.7, "num_ctx": 8192, "num_predict": 1200},
             # Qwen3 reasons step by step by default; not needed to list searches, and slow
             **({"think": False} if args.model.startswith("qwen3") else {}),
         },

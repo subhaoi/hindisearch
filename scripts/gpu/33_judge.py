@@ -14,9 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from utils import classify_query, clean_title, is_nullish  # noqa: E402
 
 LABELS = {0: "not relevant", 1: "partly relevant", 2: "relevant"}
-SCHEMA = {"type": "object", "properties": {"judgments": {"type": "array", "items": {
-    "type": "object", "properties": {"n": {"type": "integer"}, "label": {"type": "integer", "enum": [0, 1, 2]}},
-    "required": ["n", "label"]}}}, "required": ["judgments"]}
 FIELDS = {"hi": ("title_hi", "summary_hi", "data/final/articles_canonical.parquet"),
           "en": ("title", "summary", "data/en/final/articles_canonical.parquet")}
 
@@ -54,8 +51,8 @@ Judge the article's topic, not whether it repeats the exact words. Short or vagu
 
 Answer as JSON: {{"judgments": [{{"n": 1, "label": 2}}, ...]}} with one entry per article."""
     r = requests.post(f"{args.ollama}/api/generate", timeout=900, json={
-        "model": args.model, "prompt": prompt, "format": SCHEMA, "stream": False,
-        "options": {"temperature": 0, "num_ctx": 8192},
+        "model": args.model, "prompt": prompt, "format": "json", "stream": False,
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 400},
         **({"think": False} if args.model.startswith("qwen3") else {})})
     r.raise_for_status()
     got = {int(j["n"]): int(j["label"]) for j in json.loads(r.json()["response"]).get("judgments", [])}
@@ -110,7 +107,7 @@ def main() -> None:
                 print(f"  skipped {q!r}: {e}")
                 continue
             new_rows += [{"query": q, "article_id": a, "label": lab, "model": args.model}
-                         for a, lab in zip(ids, labels) if lab >= 0]
+                         for a, lab in zip(ids, labels) if lab in LABELS]
             if i % 50 == 0 or i == len(groups):
                 print(f"  [{i}/{len(groups)}] judged", flush=True)
                 out = pd.concat([cache, pd.DataFrame(new_rows)], ignore_index=True)
