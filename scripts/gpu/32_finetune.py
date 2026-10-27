@@ -12,14 +12,16 @@ from common import load_corpus, load_model, encode, prefixes, chunk_article_inde
 
 
 def build_triplets(model_name: str, q: pd.DataFrame, articles: pd.DataFrame, chunks: pd.DataFrame,
-                   chunk_art: np.ndarray, neg_from: int, neg_to: int, margin: float, seed: int) -> pd.DataFrame:
+                   chunk_art: np.ndarray, neg_from: int, neg_to: int, margin: float, seed: int,
+                   fallback_from: int = 100, fallback_to: int = 400) -> pd.DataFrame:
     """
     (query, positive passage, hard negative passage) per training query, mined with the model
     being fine-tuned:
       positive  the source article's chunk that the model already finds closest to the query
       negative  a chunk from another article ranked neg_from..neg_to for the query, skipped when
                 its score is within `margin` of the positive (probably relevant too: many queries
-                fit several articles, and training those as wrong would teach the model mistakes)
+                fit several articles, and training those as wrong would teach the model mistakes);
+                when none qualifies, a chunk ranked fallback_from..fallback_to instead
     """
     import torch
     model = load_model(model_name)
@@ -30,6 +32,7 @@ def build_triplets(model_name: str, q: pd.DataFrame, articles: pd.DataFrame, chu
     pos_art = {a: i for i, a in enumerate(articles["id"])}
     rng = random.Random(seed)
     out = []
+    fallbacks = 0
     for s in range(0, len(q), 256):
         sims = qv[s:s + 256] @ cv.T
         for j in range(sims.shape[0]):
@@ -46,11 +49,15 @@ def build_triplets(model_name: str, q: pd.DataFrame, articles: pd.DataFrame, chu
             order = torch.where(~own, sims[j], torch.tensor(-2.0, device=sims.device)).argsort(descending=True)
             cands = [int(i) for i in order[neg_from:neg_to] if float(sims[j][i]) < p_score - margin]
             if not cands:
-                continue
+                # Usually a query the model gets wrong (its own article scores below the others):
+                # the most useful ones to train on, so keep it with a less similar negative
+                cands = [int(i) for i in order[fallback_from:fallback_to]]
+                fallbacks += 1
             out.append({"anchor": qp + row["query"], "positive": pp + chunks["chunk_text"].iloc[p_idx],
                         "negative": pp + chunks["chunk_text"].iloc[rng.choice(cands)]})
     del model
     torch.cuda.empty_cache()
+    print(f"Negatives from ranks {fallback_from}-{fallback_to} (no hard one qualified): {fallbacks}")
     return pd.DataFrame(out)
 
 
@@ -73,6 +80,8 @@ def main() -> None:
     ap.add_argument("--neg-from", type=int, default=10)
     ap.add_argument("--neg-to", type=int, default=60)
     ap.add_argument("--margin", type=float, default=0.03)
+    ap.add_argument("--fallback-from", type=int, default=100)
+    ap.add_argument("--fallback-to", type=int, default=400)
     ap.add_argument("--max-seq", type=int, default=384)
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
@@ -90,7 +99,7 @@ def main() -> None:
     chunks, chunk_art = chunks[keep].reset_index(drop=True), chunk_art[keep]
 
     trip = build_triplets(args.base, train_q, articles, chunks, chunk_art, args.neg_from, args.neg_to,
-                          args.margin, args.seed)
+                          args.margin, args.seed, args.fallback_from, args.fallback_to)
     print(f"Training triplets: {len(trip)} from {len(train_q)} training queries")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

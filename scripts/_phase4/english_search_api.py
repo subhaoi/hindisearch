@@ -42,7 +42,7 @@ from .db import (
     get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
     searches_since, errors_since, label_counts,
 )
-from .english_entities import Gazetteer, detect_entities, detect_post_type
+from .english_entities import STOPWORDS, Gazetteer, detect_entities, detect_post_type
 from .ranker_v2 import ranker_v2, load_weights
 from . import usage_feed
 
@@ -299,6 +299,12 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     if text:
         drop = set(entity.get("strip_tokens") or [])
         kept = [w for w in text.split() if w.lower().strip(".,;:!?\"'()") not in drop]
+        if drop:
+            # "water crisis in maharashtra" -> "water crisis", not "water crisis in"
+            while kept and kept[-1].lower() in STOPWORDS:
+                kept.pop()
+            while kept and kept[0].lower() in STOPWORDS:
+                kept.pop(0)
         query_semantic = " ".join(kept) if kept else text
         t = time.perf_counter()
         q_vec = model.encode([QUERY_PREFIX + query_semantic], normalize_embeddings=True)[0].tolist()

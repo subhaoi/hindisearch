@@ -19,6 +19,10 @@ from utils import strip_wp_html_to_text, is_nullish, parse_date_to_iso  # noqa: 
 POST_TYPES = {"articles": "article", "features": "feature", "ground_up": "ground_up_story",
               "posts": "post", "podcasts": "podcast"}
 SUMMARY_COLS = ["general_info_summary", "general_info_podcast_summary", "_yoast_wpseo_metadesc"]
+# Translations into Indian languages live under a language path (idronline.org/mr-in/...,
+# /gu-in/, /bn/, /kn-in/). English search covers English only: its models don't read those
+# languages, so they would be keyword-only noise among English results.
+_TRANSLATION_URL_RE = re.compile(r"idronline\.org/[a-z]{2}(-[a-z]{2})?/", re.IGNORECASE)
 # " | IDR", " | Ground Up | India Development Review" and similar SEO suffixes
 _SEO_SUFFIX_RE = re.compile(r"(\s*\|\s*(IDR|India Development Review|Ground Up|Features?))+\s*$", re.IGNORECASE)
 
@@ -97,6 +101,10 @@ def main() -> None:
             })
 
     out = pd.DataFrame(rows)
+    lang = out["url"].str.extract(r"idronline\.org/([a-z]{2}(?:-[a-z]{2})?)/", flags=re.IGNORECASE)[0]
+    translated = out["url"].str.contains(_TRANSLATION_URL_RE)
+    report["translations_dropped"] = lang[translated].value_counts().to_dict()
+    out = out[~translated].reset_index(drop=True)
     dup = out["id"].duplicated(keep="first")
     report["duplicate_ids_dropped"] = int(dup.sum())
     out = out[~dup].reset_index(drop=True)
