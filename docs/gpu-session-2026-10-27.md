@@ -264,6 +264,26 @@ The test page refuses everyone until a login is added (no reload needed; repeat 
 sudo sh -c "printf 'idrtest:%s\n' \"\$(openssl passwd -apr1)\" >> /etc/nginx/.htpasswd-en-test"
 ```
 
+## After the session (27 October, late evening; live, `main` f8f978b)
+
+- **Name searches.** Full author names already worked (40 of 41 test questions return that
+  author first); the "names are weak" figure came from the grader, which sees titles and
+  summaries but not authors. The real gap was part of a longer name: "चन्द्र प्रताप" (चंद्र
+  प्रताप सिंह), "दीप ज्योति" (दीप ज्योति सोनू ब्रह्मा). Now any query made only of consecutive
+  words of an author's name boosts that author, in Devanagari, Hinglish and on the English
+  site. Hindi hand-made authors: p@10 0.93 → 0.98, mrr 0.96 → 1.00; test questions unchanged.
+- **English place aliases** (Orissa → Odisha, Kashmir → Jammu and Kashmir, Bengal → West
+  Bengal…, from `config/location_aliases.json`) for queries and for places named in text.
+- **English synonyms** (`config/synonyms_en_v1.json`, 29 groups: acronyms, spellings, old city
+  names). Broad groups (jobs/employment, funding/grants…) lowered the test score and were left out.
+- Rollback: `git checkout pre-names-2026-10-27`, rerun `scripts/en/04_index_english.py --prune`,
+  restart both APIs.
+
+Open: **13 Hindi items without a published web address** (`?post_type=…&p=…`), 10 of them
+duplicates of published articles and 3 empty: the Hindi exports have no Status column. Either
+add Status to the three Hindi export templates (and keep `publish` only, as for English), or
+skip such items in the pipeline.
+
 ## Files
 
 | What | Where (laptop, `~/Downloads/IDR Search/hindi_search`) |
