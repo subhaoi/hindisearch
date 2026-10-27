@@ -51,6 +51,7 @@ def main() -> None:
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="models/e5-large-onnx")
+    ap.add_argument("--model", default=MODEL_NAME, help="Model name or local folder (e.g. a fine-tuned model)")
     ap.add_argument("--config", default="avx2", choices=["avx2", "avx512", "avx512_vnni", "arm64"],
                     help="Quantization target; avx2 runs on every x86 server (t3 included)")
     ap.add_argument("--queries", default="data/phase_4/core_queries.json", help="Extra queries for the check")
@@ -59,8 +60,8 @@ def main() -> None:
     from sentence_transformers import SentenceTransformer, export_dynamic_quantized_onnx_model
 
     out = Path(args.out).resolve()
-    print(f"Exporting {MODEL_NAME} to ONNX at {out} ...")
-    SentenceTransformer(MODEL_NAME, backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"}).save(str(out))
+    print(f"Exporting {args.model} to ONNX at {out} ...")
+    SentenceTransformer(args.model, backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"}).save(str(out))
     # Quantize the saved copy: the Hugging Face cache keeps model.onnx_data as a symlink, which
     # newer onnx versions refuse to load
     # optimum's quantizer reads config.json from the folder holding the .onnx file
@@ -78,7 +79,7 @@ def main() -> None:
     if qpath.exists():
         queries += json.loads(qpath.read_text(encoding="utf-8")).get("queries", [])
 
-    ref = SentenceTransformer(MODEL_NAME)
+    ref = SentenceTransformer(args.model)
     quant = SentenceTransformer(str(out), backend="onnx", model_kwargs={"file_name": file_name})
     cos = np.sum(encode(ref, queries) * encode(quant, queries), axis=1)
     print(f"\nQuery-vector agreement (cosine, int8 vs original) over {len(queries)} queries: "

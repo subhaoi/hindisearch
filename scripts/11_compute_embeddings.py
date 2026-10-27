@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from tqdm import tqdm
 
 from sentence_transformers import SentenceTransformer
@@ -115,6 +116,9 @@ def embed_with_reuse(
 
 
 def main() -> None:
+    # EMBED_MODEL comes from .env, as for the API: the weekly refresh must embed with the model
+    # the API searches with
+    load_dotenv()
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="Project root")
     ap.add_argument("--articles", default="data/final/articles_canonical.parquet", help="Canonical articles parquet")
@@ -122,6 +126,9 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--hard-max-tokens", type=int, default=384, help="Hard cap for E5 (<=512)")
     ap.add_argument("--no-reuse", action="store_true", help="Re-embed everything instead of reusing unchanged vectors")
+    # Same setting as the search API (EMBED_MODEL); vectors from another model are never reused
+    ap.add_argument("--model", default=os.environ.get("EMBED_MODEL", "intfloat/multilingual-e5-large"))
+    ap.add_argument("--out-dir", default="data/phase_3", help="Where the vector parquets go")
     args = ap.parse_args()
 
     if args.hard_max_tokens > 512:
@@ -130,13 +137,14 @@ def main() -> None:
     root = Path(args.root).resolve()
     paths = Paths(root=root)
 
-    ensure_dir(paths.data / "phase_3")
+    out_dir = (root / args.out_dir).resolve()
+    ensure_dir(out_dir)
     ensure_dir(paths.logs)
 
     articles = read_parquet(Path(args.articles).resolve())
     chunks = read_parquet(Path(args.chunks).resolve())
 
-    model_name = "intfloat/multilingual-e5-large"
+    model_name = args.model
     # Load the model only if something actually needs embedding (saves ~2 GB RAM on quiet weeks)
     _model: Dict[str, SentenceTransformer] = {}
 
@@ -151,15 +159,15 @@ def main() -> None:
             _model["m"] = SentenceTransformer(model_name)
         return _model["m"]
 
-    art_path = paths.data / "phase_3" / "article_vectors.parquet"
-    chk_path = paths.data / "phase_3" / "chunk_vectors.parquet"
+    art_path = out_dir / "article_vectors.parquet"
+    chk_path = out_dir / "chunk_vectors.parquet"
     prev_art = {} if args.no_reuse else load_previous_vectors(art_path, "id", model_name)
     prev_chk = {} if args.no_reuse else load_previous_vectors(chk_path, "chunk_id", model_name)
     tokenizer = build_tokenizer_for_mpnet()
 
     report: Dict[str, Any] = {
         "model": model_name,
-        "dim": 1024,
+        "dim": None,
         "articles": len(articles),
         "chunks": len(chunks),
         "batch_size": args.batch_size,
@@ -197,7 +205,7 @@ def main() -> None:
 
     art_vecs, art_hashes, report["article_embedded"] = embed_with_reuse(
         get_model, article_ids, article_texts, prev_art, args.batch_size, "Articles",
-        paths.data / "phase_3" / ".embed_checkpoint_articles.parquet", model_name,
+        out_dir / ".embed_checkpoint_articles.parquet", model_name,
     )
 
     art_out = articles[["id", "url", "published_date"]].copy()
@@ -232,7 +240,7 @@ def main() -> None:
 
     chk_vecs, chk_hashes, report["chunk_embedded"] = embed_with_reuse(
         get_model, chunk_ids, chunk_texts, prev_chk, args.batch_size, "Chunks",
-        paths.data / "phase_3" / ".embed_checkpoint_chunks.parquet", model_name,
+        out_dir / ".embed_checkpoint_chunks.parquet", model_name,
     )
 
     chk_out = chunks[[
@@ -251,7 +259,8 @@ def main() -> None:
 
     write_json(paths.logs / "phase3_embedding_report.json", report)
     # Final files are written; checkpoints are no longer needed
-    for ck in (paths.data / "phase_3").glob(".embed_checkpoint_*.parquet"):
+    report["dim"] = len(art_vecs[0]) if art_vecs else None
+    for ck in out_dir.glob(".embed_checkpoint_*.parquet"):
         ck.unlink()
 
     print(f"Wrote: {art_path}")

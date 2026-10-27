@@ -36,7 +36,7 @@ from scripts.english import LocationIndex, as_list, leaves, primary_category, s
 from scripts.utils import classify_query, iso_to_epoch_seconds, MAX_QUERY_TOKENS
 from .api_common import (
     SearchRequest, SearchHit, SearchResponse, LabelRequest, QueryLabelRequest,
-    _cache_key, _cache_get, _cache_put, build_candidates,
+    _cache_key, _cache_get, _cache_put, build_candidates, check_vector_size,
 )
 from .db import (
     get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
@@ -118,6 +118,7 @@ ts = typesense.Client({
 })
 qd = QdrantClient(host=os.environ.get("QDRANT_HOST", "localhost"), port=int(os.environ.get("QDRANT_PORT", "6333")))
 model = SentenceTransformer(MODEL_NAME, trust_remote_code=_TRUST)
+check_vector_size(qd, QCOL_CHK, model, MODEL_NAME)
 ranker_weights = load_weights(WEIGHTS_PATH)
 engine = get_engine(DATABASE_URL)
 ensure_schema(engine)

@@ -35,7 +35,7 @@ from .db import (
 from .query_entities import detect_entities
 from .api_common import (
     SearchRequest, SearchHit, SearchResponse, LabelRequest, QueryLabelRequest,
-    _cache_key, _cache_get, _cache_put, build_candidates as merge_candidates,
+    _cache_key, _cache_get, _cache_put, build_candidates as merge_candidates, check_vector_size,
 )
 from . import usage_feed
 
@@ -65,7 +65,8 @@ QCOL_CHK = os.environ.get("QDRANT_COLLECTION_CHUNKS", "idr_chunks_vec_v1")
 
 RAW_ARTICLES_CSV = os.environ.get("RAW_ARTICLES_CSV", "data/raw/articles.csv")
 
-MODEL_NAME = "intfloat/multilingual-e5-large"
+# The model the Qdrant vectors were made with (11_compute_embeddings.py reads the same setting)
+MODEL_NAME = os.environ.get("EMBED_MODEL", "intfloat/multilingual-e5-large")
 # torch (default) | onnx. For onnx, point EMBED_ONNX_DIR/EMBED_ONNX_FILE at the output of
 # scripts/25_export_onnx_query_encoder.py.
 EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "torch").strip().lower()
@@ -258,6 +259,7 @@ app = FastAPI(title="IDR Hybrid Search API (Phase 5)")
 ts = get_typesense_client()
 qd = get_qdrant_client()
 model = load_query_encoder()
+check_vector_size(qd, QCOL_CHK, model, MODEL_NAME)
 ranker_v2_weights = load_weights()
 
 engine = get_engine()

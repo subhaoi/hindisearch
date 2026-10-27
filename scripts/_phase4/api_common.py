@@ -150,6 +150,21 @@ def build_candidates(
     return out[:cap]
 
 
+def check_vector_size(qd: Any, collection: str, model: Any, model_name: str) -> None:
+    """
+    Refuse to start when the query model and the stored vectors can't be compared (a model
+    changed in .env without re-embedding). Qdrant being unreachable is not decided here.
+    """
+    try:
+        stored = qd.get_collection(collection).config.params.vectors.size
+    except Exception:  # noqa: BLE001 - reported by the first search instead
+        return
+    dim = model.get_sentence_embedding_dimension()
+    if dim and stored and int(dim) != int(stored):
+        raise RuntimeError(f"{model_name} makes {dim}-dim vectors but {collection} holds {stored}-dim ones: "
+                           "re-embed and re-index with the same model, or fix the model setting")
+
+
 # Ranked results per query, kept until the API restarts. The weekly refresh restarts it, so a
 # cached result never outlives the data it came from. Repeated searches ("2026" and "2027" are
 # about a third of all searches) then skip retrieval entirely.
