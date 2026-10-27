@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -78,6 +79,7 @@ def main() -> None:
     ap.add_argument("--model", default="gemma3:12b")
     ap.add_argument("--ollama", default="http://localhost:11434")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--group-size", type=int, default=10, help="Articles judged per prompt")
     args = ap.parse_args()
     args.site = "IDR Hindi, a website about the Indian development sector" if args.lang == "hi" else \
         "IDR (India Development Review), a website about the Indian development sector"
@@ -93,7 +95,10 @@ def main() -> None:
     arts = pd.read_parquet(path)
     info = {str(r["id"]): {"title": clean_title(s(r[t_col])), "summary": s(r[s_col])} for _, r in arts.iterrows()}
     todo = todo[todo["article_id"].isin(info)]
-    groups = [(q, g["article_id"].tolist()[i:i + 10]) for q, g in todo.groupby("query") for i in range(0, len(g), 10)]
+    n = args.group_size
+    groups = [(q, g["article_id"].tolist()[i:i + n]) for q, g in todo.groupby("query") for i in range(0, len(g), n)]
+    # Random order, so a run stopped early still leaves an unbiased sample of fully judged queries
+    random.Random(7).shuffle(groups)
     print(f"Pairs: {len(pairs)} | already judged: {len(pairs) - len(todo)} | to judge: {len(todo)} in {len(groups)} prompts")
 
     new_rows: List[Dict[str, Any]] = []

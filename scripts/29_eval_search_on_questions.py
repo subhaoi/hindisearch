@@ -17,7 +17,7 @@ def first_hit(api: str, query: str, gold: str, k: int) -> Dict[str, Any]:
     r = requests.post(f"{api}/search", json={"query": query, "per_page": k, "log": False}, timeout=120)
     r.raise_for_status()
     ids = [str(h["id"]) for h in r.json().get("results", [])]
-    return {"rank": ids.index(gold) + 1 if gold in ids else 0, "seconds": time.perf_counter() - t}
+    return {"rank": ids.index(gold) + 1 if gold in ids else 0, "seconds": time.perf_counter() - t, "top": ids}
 
 
 def summary(ranks: pd.Series) -> Dict[str, float]:
@@ -41,6 +41,7 @@ def main() -> None:
     ap.add_argument("--sample", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--k", type=int, default=10, help="Results kept per question (scores still use the top 10)")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -50,9 +51,11 @@ def main() -> None:
     q = q.sample(min(args.sample, len(q)), random_state=args.seed).reset_index(drop=True)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         got: List[Dict[str, Any]] = list(pool.map(
-            lambda r: first_hit(args.api, r[0], str(r[1]), 10), zip(q["query"], q["article_id"])))
-    q["rank"] = [g["rank"] for g in got]
+            lambda r: first_hit(args.api, r[0], str(r[1]), args.k), zip(q["query"], q["article_id"])))
+    q["rank"] = [g["rank"] if 0 < g["rank"] <= 10 else 0 for g in got]
+    q["rank_k"] = [g["rank"] for g in got]
     q["seconds"] = [g["seconds"] for g in got]
+    q["top"] = [g["top"] for g in got]
 
     result = {"tag": args.tag, "api": args.api, "at": datetime.now(timezone.utc).isoformat(),
               "seconds_median": float(q["seconds"].median()), "overall": summary(q["rank"]),
@@ -61,6 +64,8 @@ def main() -> None:
     out = Path(args.out or f"runs/gpu/search_{Path(args.split).stem}_{args.tag}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
+    # Each question's top 10, for relevance judging (gpu/33_judge.py --pairs) and later re-scoring
+    q[["query", "article_id", "split", "style", "rank", "rank_k", "top"]].to_parquet(out.with_suffix(".results.parquet"), index=False)
     o = result["overall"]
     print(f"{args.tag}: recall@1 {o['recall@1']:.3f}  recall@10 {o['recall@10']:.3f}  mrr@10 {o['mrr@10']:.3f}"
           f"  | median {result['seconds_median'] * 1000:.0f} ms/search")
