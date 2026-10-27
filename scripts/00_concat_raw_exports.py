@@ -10,6 +10,9 @@ from utils import Paths, ensure_dir
 
 
 IMAGE_COL = "Image Featured"
+# WP All Export "Status" field: only published posts are searchable (drafts, private and
+# trashed posts come without a real permalink, often as copies of a published article)
+STATUS_COL = "Status"
 
 DEFAULT_INPUTS = [
     "data/raw/Articles-Export-2024-January-25-0205.csv",
@@ -54,6 +57,14 @@ def main() -> None:
         print(f"Loaded {len(df):>4} rows from {p}")
 
     combined = pd.concat(dfs, ignore_index=True)
+    if STATUS_COL in combined.columns:
+        status = combined[STATUS_COL].fillna("").astype(str).str.strip().str.lower()
+        dropped = status[status != "publish"].value_counts().to_dict()
+        combined = combined[status == "publish"]
+        print(f"Kept {len(combined)} published rows; left out by status: {dropped or 'none'}")
+    else:
+        print(f"WARNING: no '{STATUS_COL}' column; unpublished posts can't be told apart. "
+              "Add the field to the WP All Export templates.")
     combined = combined.drop_duplicates(subset=["ID"], keep="first").reset_index(drop=True)
 
     if args.carry_images_from:

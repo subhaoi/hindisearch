@@ -185,6 +185,8 @@ class RefreshRun:
             raise StepFailed(f"validate:{name}: no rows")
         if "Image Featured" not in df.columns:
             self.log(f"[{name}] WARNING: no 'Image Featured' column; image URLs carried over from last run")
+        if "Status" not in df.columns:
+            self.log(f"[{name}] WARNING: no 'Status' column; drafts and other unpublished posts will be indexed")
 
         prev = EXPORTS_DIR / f"{name}.csv"
         if prev.exists():
