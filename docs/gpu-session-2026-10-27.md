@@ -14,23 +14,30 @@ deployed. Code is on the `multisite` branch; models and data are on the laptop (
 | Hindi query model size | 2.2 GB | 0.28 GB |
 | **English** search (new), top 10, whole search | | **61.1%** (58% with the untrained model) |
 
+Real reader searches (graded, same code): first result relevant 60% with the live model, 64%
+with the trained one; 42% for what readers actually got before this month's fixes.
+
+**Deployed 27 October, 22:20-22:40:** step 1 (code, speed fixes) and step 3 (English site:
+API at `https://api.idronline.org/en/`, password-protected test page at `/en-test/`). Hindi still
+runs the live model; the trained model (step 2) waits for your go-ahead.
+
 Tested and not adopted (details below): a reranker (+4 points, too slow for the t3 server),
 learned ranking weights and embedding Hinglish as typed (no gain).
 
 ## Decisions for you
 
-1. **Deploy the speed fixes now** (`main`, commit `680e060`): cache, logging after the reply,
-   per-step timings. Independent of the model. Commands under "Deploy" below.
-2. **Switch Hindi to the trained model**, after one or two days of step timings from (1), so
-   the before/after is visible. Reversible by one `.env` change.
-3. **Merge `multisite` into `main`** once you have reviewed this: it carries the model setting,
-   the English site and the measurement scripts. English stays inert until its `EN_*` settings
-   exist.
-4. **English test site** on the Hindi server (enough room: 5 GB memory and 9 GB disk free),
-   and the English WP All Export links for its weekly refresh.
-5. **Server**: stay on t3.large after the model switch and watch the CPU credit balance; if it
+Done on 27 October: `multisite` merged into `main`; step 1 (speed fixes) and step 3 (English
+site) deployed. Still open:
+
+1. **Tester login** for `/en-test/` (one command, under "Deploy", step 3), then share it.
+2. **Switch Hindi to the trained model** after a day or two of step timings from step 1, so
+   the before/after is visible: `deploy/hindi_model_switch.sh apply` (rolls back by itself if
+   its test searches fail; `rollback` undoes it any time).
+3. **English WP All Export links** for the English weekly refresh, and the admin panel's
+   English tab (`ENGLISH_SEARCH_USAGE_URL=https://api.idronline.org/en/api/usage` on the tools server).
+4. **Server**: stay on t3.large after the model switch and watch the CPU credit balance; if it
    still throttles, or when English goes public, `m7g.large` (2 full cores, 8 GB, similar price).
-6. **Next GPU session** (later, optional): stricter grading, more training for English, and the
+5. **Next GPU session** (later, optional): stricter grading, more training for English, and the
    reranker if the server gets full cores.
 
 ## How it was measured
@@ -98,7 +105,20 @@ The grader is generous, so the levels run high; the direction agrees with the st
 Weak spot for both: searches that are a name (person, organisation): first result relevant
 only ~40% of the time.
 
-GRADED_REAL
+### Real reader searches (846 logged searches, junk removed; graded)
+
+The searches people actually typed (2025-12 to 2026-10), each run three ways and every top-10
+result graded:
+
+| | What readers got at the time | Today's code, live model | Today's code, trained model |
+|---|---|---|---|
+| A relevant article in the top 10 | 76% | 83% | **87%** |
+| First result relevant | 42% | 60% | **64%** |
+| Relevant articles in the top 3 (average) | 1.0 | 1.4 | **1.6** |
+
+Most of the gain comes from the code fixes of the past weeks (live since 27 October, 22:20);
+the trained model adds a further step on the same code (first result better on 86 searches,
+worse on 52), and is ~30x faster at its step. Grades are generous: compare columns, not levels.
 
 ### Speed (query encoding, 2 cores)
 
@@ -229,6 +249,14 @@ Not run end to end yet (needs the server's service); each step in it was run loc
 `scripts/en/04_index_english.py --prune`, two services, and an nginx location with a password.
 **Undo:** `sudo systemctl disable --now englishsearch-api englishsearch-test-ui` and remove
 the nginx location. Hindi is not touched.
+
+Done on 27 October: API at `https://api.idronline.org/en/` (e.g. `POST /en/search`), test page
+at `https://api.idronline.org/en-test/`, nginx backup at `/etc/nginx/default.pre-en-2026-10-27`.
+The test page refuses everyone until a login is added (no reload needed; repeat per tester):
+
+```bash
+sudo sh -c "printf 'idrtest:%s\n' \"\$(openssl passwd -apr1)\" >> /etc/nginx/.htpasswd-en-test"
+```
 
 ## Files
 
