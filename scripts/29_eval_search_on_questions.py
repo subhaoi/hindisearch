@@ -41,6 +41,8 @@ def main() -> None:
     ap.add_argument("--sample", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--articles", default=None,
+                    help="Canonical parquet: keep only questions about articles still on the site")
     ap.add_argument("--k", type=int, default=10, help="Results kept per question (scores still use the top 10)")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default=None)
@@ -48,6 +50,8 @@ def main() -> None:
 
     q = pd.read_parquet(args.split)
     q = q[q["split"].isin(args.sets.split(","))]
+    if args.articles:
+        q = q[q["article_id"].astype(str).isin(set(pd.read_parquet(args.articles)["id"].astype(str)))]
     q = q.sample(min(args.sample, len(q)), random_state=args.seed).reset_index(drop=True)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         got: List[Dict[str, Any]] = list(pool.map(
