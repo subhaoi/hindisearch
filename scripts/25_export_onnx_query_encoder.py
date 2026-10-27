@@ -70,9 +70,12 @@ def main() -> None:
     # Quantize the saved copy (the Hugging Face cache keeps model.onnx_data as a symlink, which
     # newer onnx versions refuse to load), with onnxruntime directly: optimum's quantizer needed
     # more memory than a 16 GB laptop has. The file name records the target CPU family.
+    # reduce_range: without it, int8 maths saturates on x86 CPUs lacking VNNI (measured on the
+    # trained e5-base: query-vector agreement 0.81 -> 0.95, recall@10 54.8% -> 57.8% vs 58.1%
+    # unquantized)
     shutil.copy(out / "config.json", out / "onnx" / "config.json")
     quantize_dynamic(str(out / "onnx" / "model.onnx"), str(out / "onnx" / f"model_qint8_{args.config}.onnx"),
-                     weight_type=QuantType.QInt8, per_channel=True)
+                     weight_type=QuantType.QInt8, per_channel=True, reduce_range=True)
 
     candidates = sorted((out / "onnx").glob(f"*qint8*{args.config}*.onnx"))
     if not candidates:
