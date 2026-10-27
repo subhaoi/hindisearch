@@ -40,10 +40,10 @@ def mean_latency_ms(model, queries: List[str], repeats: int = 3) -> float:
 
 def main() -> None:
     """
-    Export the e5-large query encoder to ONNX with int8 dynamic quantization for faster
-    CPU inference on the API host. Needs `optimum[onnxruntime]`. Quantizing peaks at ~10 GB RAM
-    (measured), so run it on a machine with 16 GB and little else running (not the API host, and
-    not a laptop with an editor open), then copy --out to the server.
+    Export the query encoder to ONNX with int8 dynamic quantization (weights) for faster CPU
+    inference on the API host. Needs `optimum[onnxruntime]`. Memory peaks at about 5x the model
+    file (measured: 5.3 GB for e5-base, ~10 GB for e5-large), so not on the API host; then copy
+    --out to the server. Temporary files go to TMPDIR (set it to a real disk if /tmp is small).
 
     Prints how closely the int8 query vectors agree with the original model; only switch
     the API over (EMBED_BACKEND=onnx) if the agreement is high and 23_evaluate_search.py
@@ -57,17 +57,22 @@ def main() -> None:
     ap.add_argument("--queries", default="data/phase_4/core_queries.json", help="Extra queries for the check")
     args = ap.parse_args()
 
-    from sentence_transformers import SentenceTransformer, export_dynamic_quantized_onnx_model
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+    from sentence_transformers import SentenceTransformer
 
     out = Path(args.out).resolve()
     print(f"Exporting {args.model} to ONNX at {out} ...")
-    SentenceTransformer(args.model, backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"}).save(str(out))
-    # Quantize the saved copy: the Hugging Face cache keeps model.onnx_data as a symlink, which
-    # newer onnx versions refuse to load
-    # optimum's quantizer reads config.json from the folder holding the .onnx file
+    # Hub models publish onnx/model.onnx; a local (fine-tuned) folder has none and is converted
+    local = Path(args.model)
+    load_kwargs = {"export": True} if local.is_dir() and not (local / "onnx" / "model.onnx").exists() \
+        else {"file_name": "onnx/model.onnx"}
+    SentenceTransformer(args.model, backend="onnx", model_kwargs=load_kwargs).save(str(out))
+    # Quantize the saved copy (the Hugging Face cache keeps model.onnx_data as a symlink, which
+    # newer onnx versions refuse to load), with onnxruntime directly: optimum's quantizer needed
+    # more memory than a 16 GB laptop has. The file name records the target CPU family.
     shutil.copy(out / "config.json", out / "onnx" / "config.json")
-    onnx_model = SentenceTransformer(str(out), backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"})
-    export_dynamic_quantized_onnx_model(onnx_model, args.config, str(out))
+    quantize_dynamic(str(out / "onnx" / "model.onnx"), str(out / "onnx" / f"model_qint8_{args.config}.onnx"),
+                     weight_type=QuantType.QInt8, per_channel=True)
 
     candidates = sorted((out / "onnx").glob(f"*qint8*{args.config}*.onnx"))
     if not candidates:
