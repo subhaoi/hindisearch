@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import List
@@ -40,8 +41,9 @@ def mean_latency_ms(model, queries: List[str], repeats: int = 3) -> float:
 def main() -> None:
     """
     Export the e5-large query encoder to ONNX with int8 dynamic quantization for faster
-    CPU inference on the API host. Needs `optimum[onnxruntime]`. Exporting takes ~6 GB RAM,
-    so run it on a dev machine and copy --out to the server.
+    CPU inference on the API host. Needs `optimum[onnxruntime]`. Quantizing peaks at ~10 GB RAM
+    (measured), so run it on a machine with 16 GB and little else running (not the API host, and
+    not a laptop with an editor open), then copy --out to the server.
 
     Prints how closely the int8 query vectors agree with the original model; only switch
     the API over (EMBED_BACKEND=onnx) if the agreement is high and 23_evaluate_search.py
@@ -58,8 +60,12 @@ def main() -> None:
 
     out = Path(args.out).resolve()
     print(f"Exporting {MODEL_NAME} to ONNX at {out} ...")
-    onnx_model = SentenceTransformer(MODEL_NAME, backend="onnx")
-    onnx_model.save(str(out))
+    SentenceTransformer(MODEL_NAME, backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"}).save(str(out))
+    # Quantize the saved copy: the Hugging Face cache keeps model.onnx_data as a symlink, which
+    # newer onnx versions refuse to load
+    # optimum's quantizer reads config.json from the folder holding the .onnx file
+    shutil.copy(out / "config.json", out / "onnx" / "config.json")
+    onnx_model = SentenceTransformer(str(out), backend="onnx", model_kwargs={"file_name": "onnx/model.onnx"})
     export_dynamic_quantized_onnx_model(onnx_model, args.config, str(out))
 
     candidates = sorted((out / "onnx").glob(f"*qint8*{args.config}*.onnx"))
