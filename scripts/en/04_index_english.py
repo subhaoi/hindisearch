@@ -99,6 +99,28 @@ def index_typesense(articles: pd.DataFrame, collection: str, recreate: bool, pru
     return report
 
 
+SYNONYM_PREFIX = "en_syn_"
+
+
+def load_synonyms(collection: str, path: Path) -> int:
+    """Replace this script's synonym groups in the collection with those in `path`."""
+    import typesense
+    client = typesense.Client({
+        "nodes": [{"host": os.environ.get("TYPESENSE_HOST", "localhost"), "port": os.environ.get("TYPESENSE_PORT", "8108"),
+                   "protocol": os.environ.get("TYPESENSE_PROTOCOL", "http")}],
+        "api_key": os.environ["TYPESENSE_API_KEY"], "connection_timeout_seconds": 30,
+    })
+    syn = client.collections[collection].synonyms
+    for old in syn.retrieve().get("synonyms", []) or []:
+        if str(old.get("id", "")).startswith(SYNONYM_PREFIX):
+            syn[old["id"]].delete()
+    groups = json.loads(path.read_text(encoding="utf-8"))["groups"]
+    for i, terms in enumerate(groups):
+        syn.upsert(f"{SYNONYM_PREFIX}{i:03d}", {"synonyms": [t.lower() for t in terms]})
+    print(f"Synonyms: {len(groups)} groups loaded into {collection}")
+    return len(groups)
+
+
 def point_id(chunk_id: str) -> int:
     # Same scheme as the Hindi chunks (13_qdrant_ingest.py)
     return struct.unpack(">Q", hashlib.sha1(chunk_id.encode("utf-8")).digest()[:8])[0]
@@ -164,6 +186,7 @@ def main() -> None:
     ap.add_argument("--vectors-dir", default="data/en/phase_3")
     ap.add_argument("--recreate", action="store_true")
     ap.add_argument("--prune", action="store_true")
+    ap.add_argument("--synonyms", default="config/synonyms_en_v1.json")
     ap.add_argument("--report", default="logs/en_index_report.json")
     args = ap.parse_args()
 
@@ -188,6 +211,8 @@ def main() -> None:
     report = {"typesense": index_typesense(articles, ts_name, args.recreate, args.prune),
               "qdrant": index_qdrant(art_vecs, chk_vecs, c_art, c_chk, args.recreate, args.prune),
               "model": sorted(set(art_vecs["model"]))}
+    if args.synonyms and Path(args.synonyms).exists():
+        report["synonym_groups"] = load_synonyms(ts_name, Path(args.synonyms))
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
     if report["typesense"]["failed"]:

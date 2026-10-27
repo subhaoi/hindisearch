@@ -1,0 +1,137 @@
+{
+ "version": "synonyms_en_v1",
+ "note": "Multi-way synonym groups for the English site (scripts/en/04_index_english.py loads them into its Typesense collection): acronyms, spelling variants and old city names only, from the English members of synonyms_v1.json plus a few English-only ones. Broad groups (jobs/employment, funding/grants, agriculture/farming, workers/labour...) were tested and left out: they lowered results slightly (61.1% -> 60.3% top 10 on the English test questions) by widening every search that used those words.",
+ "groups": [
+  [
+   "covid",
+   "coronavirus",
+   "covid 19"
+  ],
+  [
+   "fpo",
+   "farmer producer organisation",
+   "farmer producer organization"
+  ],
+  [
+   "fra",
+   "forest rights act"
+  ],
+  [
+   "cfr",
+   "community forest rights"
+  ],
+  [
+   "fcra",
+   "foreign contribution regulation act"
+  ],
+  [
+   "shg",
+   "shgs",
+   "self help group",
+   "self help groups"
+  ],
+  [
+   "tb",
+   "tuberculosis"
+  ],
+  [
+   "fln",
+   "foundational literacy and numeracy"
+  ],
+  [
+   "pds",
+   "public distribution system"
+  ],
+  [
+   "rti",
+   "right to information"
+  ],
+  [
+   "rte",
+   "right to education"
+  ],
+  [
+   "dnt",
+   "denotified tribes"
+  ],
+  [
+   "mgnrega",
+   "nrega",
+   "mnrega",
+   "manrega",
+   "narega",
+   "vb g ram g"
+  ],
+  [
+   "anganwadi",
+   "aanganwadi",
+   "anganbadi"
+  ],
+  [
+   "asha worker",
+   "asha workers",
+   "accredited social health activist"
+  ],
+  [
+   "labour law",
+   "labour laws",
+   "labor law",
+   "labor laws"
+  ],
+  [
+   "monitoring and evaluation",
+   "monitoring evaluation"
+  ],
+  [
+   "nep",
+   "nep 2020",
+   "new education policy",
+   "national education policy"
+  ],
+  [
+   "csr",
+   "corporate social responsibility"
+  ],
+  [
+   "icds",
+   "integrated child development services"
+  ],
+  [
+   "posh",
+   "sexual harassment at the workplace"
+  ],
+  [
+   "pvtg",
+   "pvtgs",
+   "particularly vulnerable tribal groups"
+  ],
+  [
+   "pesa",
+   "panchayats extension to scheduled areas"
+  ],
+  [
+   "mumbai",
+   "bombay"
+  ],
+  [
+   "bengaluru",
+   "bangalore"
+  ],
+  [
+   "gurugram",
+   "gurgaon"
+  ],
+  [
+   "kolkata",
+   "calcutta"
+  ],
+  [
+   "chennai",
+   "madras"
+  ],
+  [
+   "puducherry",
+   "pondicherry"
+  ]
+ ]
+}

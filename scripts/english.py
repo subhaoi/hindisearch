@@ -5,7 +5,9 @@ so what gets indexed and what the API reasons about can never drift apart.
 """
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
@@ -16,6 +18,9 @@ CHUNK_WORDS = 220
 
 # Locations tagged on more than this share of articles ("India") are too broad to filter on
 BROAD_LOCATION_SHARE = 0.20
+
+# Shared with the Hindi site: Devanagari place -> other spellings, English ones among them
+LOCATION_ALIASES = Path(__file__).resolve().parents[1] / "config" / "location_aliases.json"
 
 
 def s(v: Any) -> str:
@@ -106,13 +111,30 @@ def locations_all(tagged: List[str], text: str, pattern: Optional[re.Pattern], c
     return list(dict.fromkeys(found))
 
 
+def english_location_aliases(places: Iterable[str], path: Path = LOCATION_ALIASES) -> Dict[str, str]:
+    """Other English spellings of the site's places from the shared alias file:
+    {"orissa": "Odisha", "kashmir": "Jammu and Kashmir", ...}."""
+    if not path.exists():
+        return {}
+    by_name = {p.casefold(): p for p in places}
+    out: Dict[str, str] = {}
+    for names in json.loads(path.read_text(encoding="utf-8")).get("aliases", {}).values():
+        latin = [n for n in names if n.isascii()]
+        canon = next((by_name[n.casefold()] for n in latin if n.casefold() in by_name), None)
+        if canon:
+            out.update({n.casefold(): canon for n in latin if n.casefold() != canon.casefold()})
+    return out
+
+
 class LocationIndex:
-    """Tagged location names of the corpus, to find them in article text (same in index and API)."""
+    """Tagged location names of the corpus and their other spellings, to find them in article
+    text and in queries (same in index and API)."""
 
     def __init__(self, articles: pd.DataFrame) -> None:
         self.counts = location_names(articles)
-        self.canonical = {n.casefold(): n for n in self.counts}
-        self.pattern = location_pattern(self.counts)
+        self.aliases = english_location_aliases(self.counts)
+        self.canonical = {**{n.casefold(): n for n in self.counts}, **self.aliases}
+        self.pattern = location_pattern(list(self.counts) + list(self.aliases))
 
     def for_article(self, row: Any) -> List[str]:
         text = " ".join([s(row["title"]), s(row["summary"]), s(row["content"])])

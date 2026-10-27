@@ -30,6 +30,12 @@ def _build_in_filter(field: str, values: List[str]) -> Optional[str]:
     return f"{field}:=[{v}]"
 
 
+def _is_part(words: List[str], name: List[str]) -> bool:
+    """`words` are consecutive words of `name`, but not all of it (a full name is a phrase match)."""
+    n = len(words)
+    return 0 < n < len(name) and any(name[i:i + n] == words for i in range(len(name) - n + 1))
+
+
 def detect_entities(
     query_full: str,
     gazetteer: Dict[str, Any],
@@ -141,6 +147,20 @@ def detect_entities(
                 v for v, mt, keys in zip(values, texts, keys_list)
                 if (not latin and t in {loose_fold(x) for x in query_tokens(mt)})
                 or (latin and len(tk) >= 5 and tk in {p for k in keys for p in k.split()})
+            ]
+            if 1 <= len(partial) <= max_per_field:
+                got, score = partial, 1
+                name_query = True
+
+        # Several words that are consecutive words of an author's longer name ("चन्द्र प्रताप" ->
+        # चंद्र प्रताप सिंह, "deep jyoti" -> दीप ज्योति सोनू ब्रह्मा): the same boost as one word.
+        # Only when the whole query is name words, so "महिला किसान" stays a topic search.
+        if field == "contributors_norm" and not got and len(toks) >= 2 and not any(
+                t in HINDI_STOPWORDS or k in ROMAN_STOPWORD_KEYS for t, k in zip(toks, tok_keys)):
+            partial = [
+                v for v, mt, keys in zip(values, texts, keys_list)
+                if _is_part(toks, [loose_fold(x) for x in query_tokens(mt)])
+                or any(_is_part(tok_keys, k.split()) for k in keys)
             ]
             if 1 <= len(partial) <= max_per_field:
                 got, score = partial, 1

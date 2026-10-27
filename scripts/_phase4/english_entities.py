@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from scripts.utils import query_tokens
 
@@ -33,7 +33,8 @@ COMMON_WORD_SHARE = 0.01
 
 
 class Gazetteer:
-    def __init__(self, articles_meta: Dict[str, Dict[str, Any]], headline_text: Dict[str, str]) -> None:
+    def __init__(self, articles_meta: Dict[str, Dict[str, Any]], headline_text: Dict[str, str],
+                 location_aliases: Optional[Dict[str, str]] = None) -> None:
         self.n = max(1, len(articles_meta))
         self.values: Dict[str, List[tuple]] = {}
         for field in FIELDS:
@@ -44,6 +45,11 @@ class Gazetteer:
                 if not toks or all(t in STOPWORDS for t in toks) or (len(toks) == 1 and len(toks[0]) < 3):
                     continue
                 vals.append((v, toks, dc))
+            if field == "locations_all":
+                # Other spellings ("orissa") match as their place, with its article count
+                dc_of = {v: dc for v, _, dc in vals}
+                vals += [(canon, tuple(query_tokens(alias)), dc_of.get(canon, 0))
+                         for alias, canon in (location_aliases or {}).items() if canon in dc_of]
             self.values[field] = vals
         df: Counter = Counter()
         for text in headline_text.values():
@@ -55,6 +61,12 @@ def _contains(seq: List[str], sub: tuple) -> List[int]:
     """Start positions where `sub` occurs in `seq` as consecutive tokens."""
     k = len(sub)
     return [i for i in range(len(seq) - k + 1) if tuple(seq[i:i + k]) == sub]
+
+
+def _is_part(words: List[str], name: tuple) -> bool:
+    """`words` are consecutive words of `name`, but not all of it (a full name is a phrase match)."""
+    n = len(words)
+    return 0 < n < len(name) and any(list(name[i:i + n]) == words for i in range(len(name) - n + 1))
 
 
 def _filter(field: str, values: List[str]) -> str:
@@ -88,6 +100,14 @@ def detect_entities(query: str, gaz: Gazetteer, max_per_field: int = 3) -> Dict[
         if key == "contributors_norm" and not got and len(toks) == 1 and len(toks[0]) >= 4 \
                 and toks[0] not in STOPWORDS and toks[0] not in gaz.common:
             partial = [v for v, vt, _ in gaz.values[field] if toks[0] in vt]
+            if 1 <= len(partial) <= max_per_field:
+                got, name_query = partial, True
+        # Several words that are consecutive words of an author's longer name ("deep jyoti" ->
+        # Deep Jyoti Sonu Brahma); not when every word is common in headlines ("india
+        # development" is a topic, not the author India Development Review)
+        if key == "contributors_norm" and not got and len(toks) >= 2 \
+                and not any(t in STOPWORDS for t in toks) and not all(t in gaz.common for t in toks):
+            partial = [v for v, vt, _ in gaz.values[field] if _is_part(toks, vt)]
             if 1 <= len(partial) <= max_per_field:
                 got, name_query = partial, True
         if got:

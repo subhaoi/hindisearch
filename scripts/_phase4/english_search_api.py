@@ -106,6 +106,7 @@ gazetteer = Gazetteer(
     {a: {"contributors": m["contributors"], "locations_all": m["locations_all"],
          "categories": m["categories"], "tags": m["tags"]} for a, m in articles_meta.items()},
     {a: f"{m['title'] or ''} {m['summary'] or ''}" for a, m in articles_meta.items()},
+    location_aliases=_locs.aliases,
 )
 
 QUERY_PREFIX, _, _TRUST = prefixes(MODEL_NAME)
