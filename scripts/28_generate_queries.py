@@ -16,31 +16,55 @@ from utils import read_parquet, clean_title, is_nullish, query_tokens
 # (https://ollama.com) writes the searches each article could answer. The search service
 # never calls a model; the output is used to build a large test set and ranker training data.
 
-# How many queries of each kind per article, roughly the mix in the search logs
-# (short words dominate; about 60% of real searches are typed in English letters).
-STYLES = {
-    "hindi_keywords": ("1-3 Hindi words in Devanagari, the way people type in a search box", 5),
-    "hinglish": ("1-4 Hindi words typed in English letters (e.g. 'mahila swasthya', 'jal sankat')", 5),
-    "english": ("1-4 English words (e.g. 'tribal land rights')", 4),
-    "question": ("a short natural question in Hindi (Devanagari) that this article answers", 2),
-    "entity": ("a person, place, organisation, scheme or law named in the article, alone or with one word", 2),
-    "misspelt": ("a Hindi or Hinglish search with a common typing mistake", 2),
+# Per site: the article columns, the site's name for the prompt, and how many queries of each
+# kind per article. Hindi: roughly the mix in the search logs (short words dominate; about 60%
+# of real searches are typed in English letters). English: no logs yet, so the usual mix of
+# keywords, phrases, questions and names, plus Indian terms in English letters.
+LANGS: Dict[str, Dict[str, Any]] = {
+    "hi": {
+        "site": "IDR Hindi, a website about the Indian development sector",
+        "fields": {"title": "title_hi", "summary": "summary_hi", "content": "content_hi",
+                   "authors": "contributors_norm", "places": "locations_norm", "tags": "tags_norm"},
+        "styles": {
+            "hindi_keywords": ("1-3 Hindi words in Devanagari, the way people type in a search box", 5),
+            "hinglish": ("1-4 Hindi words typed in English letters (e.g. 'mahila swasthya', 'jal sankat')", 5),
+            "english": ("1-4 English words (e.g. 'tribal land rights')", 4),
+            "question": ("a short natural question in Hindi (Devanagari) that this article answers", 2),
+            "entity": ("a person, place, organisation, scheme or law named in the article, alone or with one word", 2),
+            "misspelt": ("a Hindi or Hinglish search with a common typing mistake", 2),
+        },
+    },
+    "en": {
+        "site": "IDR (India Development Review), an English website about the Indian development sector",
+        "fields": {"title": "title", "summary": "summary", "content": "content",
+                   "authors": "contributors", "places": "locations", "tags": "tags"},
+        "styles": {
+            "keywords": ("1-3 English words, the way people type in a search box (e.g. 'csr funding')", 6),
+            "phrase": ("a natural 3-6 word search (e.g. 'how to measure nonprofit impact')", 4),
+            "question": ("a short question this article answers", 3),
+            "entity": ("a person, place, organisation, scheme or law named in the article, alone or with one word", 3),
+            "indian_term": ("an Indian term as Indians type it in English letters (e.g. 'anganwadi workers', 'gram sabha')", 2),
+            "misspelt": ("a search with a common typing mistake", 2),
+        },
+    },
 }
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "queries": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"q": {"type": "string"}, "style": {"type": "string", "enum": list(STYLES)}},
-                "required": ["q", "style"],
-            },
-        }
-    },
-    "required": ["queries"],
-}
+
+def schema(styles: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "queries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}, "style": {"type": "string", "enum": list(styles)}},
+                    "required": ["q", "style"],
+                },
+            }
+        },
+        "required": ["queries"],
+    }
 
 
 def as_text(v: Any) -> str:
@@ -56,16 +80,18 @@ def as_list(v: Any) -> List[str]:
         return []
 
 
-def build_prompt(row: Dict[str, Any], max_chars: int) -> str:
-    wanted = "\n".join(f"- {n} x {name}: {desc}" for name, (desc, n) in STYLES.items())
+def build_prompt(row: Dict[str, Any], max_chars: int, lang: Dict[str, Any]) -> str:
+    fld = lang["fields"]
+    wanted = "\n".join(f"- {n} x {name}: {desc}" for name, (desc, n) in lang["styles"].items())
     meta = []
-    if as_list(row.get("contributors_norm")):
-        meta.append("Authors: " + ", ".join(as_list(row.get("contributors_norm"))))
-    if as_list(row.get("locations_norm")):
-        meta.append("Places: " + ", ".join(as_list(row.get("locations_norm"))))
-    if as_list(row.get("tags_norm")):
-        meta.append("Tags: " + ", ".join(as_list(row.get("tags_norm"))[:8]))
-    return f"""You help build a test set for the search box of IDR Hindi, a website about the Indian development sector.
+    if as_list(row.get(fld["authors"])):
+        meta.append("Authors: " + ", ".join(as_list(row.get(fld["authors"]))))
+    if as_list(row.get(fld["places"])):
+        meta.append("Places: " + ", ".join(as_list(row.get(fld["places"]))))
+    if as_list(row.get(fld["tags"])):
+        meta.append("Tags: " + ", ".join(as_list(row.get(fld["tags"]))[:8]))
+    first_style = next(iter(lang["styles"]))
+    return f"""You help build a test set for the search box of {lang["site"]}.
 Read the article and write the searches that real readers would type to find it.
 
 Rules:
@@ -76,16 +102,16 @@ Rules:
 Write exactly these searches:
 {wanted}
 
-Title: {clean_title(as_text(row.get("title_hi")))}
-Summary: {as_text(row.get("summary_hi"))}
+Title: {clean_title(as_text(row.get(fld["title"])))}
+Summary: {as_text(row.get(fld["summary"]))}
 {chr(10).join(meta)}
 Article (start):
-{as_text(row.get("content_hi"))[:max_chars]}
+{as_text(row.get(fld["content"]))[:max_chars]}
 
-Answer as JSON: {{"queries": [{{"q": "...", "style": "hindi_keywords"}}, ...]}}"""
+Answer as JSON: {{"queries": [{{"q": "...", "style": "{first_style}"}}, ...]}}"""
 
 
-def clean_queries(raw: List[Dict[str, Any]], title: str, max_words: int) -> List[Dict[str, str]]:
+def clean_queries(raw: List[Dict[str, Any]], title: str, max_words: int, styles: Dict[str, Any]) -> List[Dict[str, str]]:
     """Drop empty, overlong, duplicate and headline-copy queries."""
     seen: Set[str] = set()
     title_key = " ".join(query_tokens(clean_title(title)))
@@ -94,7 +120,7 @@ def clean_queries(raw: List[Dict[str, Any]], title: str, max_words: int) -> List
         q = " ".join(str(item.get("q", "")).replace('"', " ").split()).strip(" .,-")
         style = str(item.get("style", ""))
         key = " ".join(query_tokens(q))
-        if not key or style not in STYLES or key in seen or key == title_key:
+        if not key or style not in styles or key in seen or key == title_key:
             continue
         if len(key.split()) > max_words:
             continue
@@ -108,16 +134,19 @@ def generate(row: Dict[str, Any], args: argparse.Namespace) -> List[Dict[str, st
         f"{args.ollama.rstrip('/')}/api/generate",
         json={
             "model": args.model,
-            "prompt": build_prompt(row, args.max_chars),
-            "format": SCHEMA,
+            "prompt": build_prompt(row, args.max_chars, LANGS[args.lang]),
+            "format": schema(LANGS[args.lang]["styles"]),
             "stream": False,
             "options": {"temperature": 0.7, "num_ctx": 8192},
+            # Qwen3 reasons step by step by default; not needed to list searches, and slow
+            **({"think": False} if args.model.startswith("qwen3") else {}),
         },
         timeout=900,
     )
     r.raise_for_status()
     raw = json.loads(r.json().get("response") or "{}").get("queries", [])
-    return clean_queries(raw, as_text(row.get("title_hi")), args.max_words)
+    lang = LANGS[args.lang]
+    return clean_queries(raw, as_text(row.get(lang["fields"]["title"])), args.max_words, lang["styles"])
 
 
 def done_ids(out_path: Path) -> Set[str]:
@@ -143,8 +172,10 @@ def main() -> None:
       python scripts/28_generate_queries.py --limit 5        # try it, check the output
       python scripts/28_generate_queries.py                  # everything (runs for hours)
       OLLAMA_NUM_PARALLEL=4 ollama serve & ... --workers 4   # on a GPU
+      ... --lang en --articles data/en/final/articles_canonical.parquet --out data/synthetic/queries_en.jsonl
     """
     ap = argparse.ArgumentParser()
+    ap.add_argument("--lang", default="hi", choices=sorted(LANGS), help="Which site the articles are from")
     ap.add_argument("--articles", default="data/final/articles_canonical.parquet")
     ap.add_argument("--out", default="data/synthetic/queries.jsonl")
     ap.add_argument("--model", default="gemma3:4b")
