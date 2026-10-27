@@ -17,8 +17,9 @@ def get_database_url() -> str:
     return url
 
 
-def get_engine() -> Engine:
-    return create_engine(get_database_url(), pool_pre_ping=True)
+def get_engine(url: Optional[str] = None) -> Engine:
+    """DATABASE_URL by default; the English API passes its own database (EN_DATABASE_URL)."""
+    return create_engine(url or get_database_url(), pool_pre_ping=True)
 
 
 DDL_STATEMENTS = [

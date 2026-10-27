@@ -434,6 +434,52 @@ python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.jso
 
 ---
 
+## English site search
+
+The English site (idronline.org) runs from the same checkout as a second API with its own
+indexes, model and log database. Hindi is unaffected: its collections, settings and code paths
+are separate; the two APIs share only the request/response contract and the candidate merge
+(`scripts/_phase4/api_common.py`), so a frontend built for one works with the other.
+
+| | Hindi | English |
+|---|---|---|
+| API | `hybrid_search_api.py`, port 8000 | `english_search_api.py`, port 8001 |
+| Settings | `TYPESENSE_COLLECTION`, `QDRANT_COLLECTION_*`, `DATABASE_URL` | `EN_*` in `.env` (see `.env.example`) |
+| Data | `data/final`, `data/phase_3` | `data/en/final`, `data/en/phase_3` |
+| Model | multilingual-e5-large | `EN_EMBED_MODEL` |
+| Test page | `feedback_ui.py`, port 8500 | same page, `FEEDBACK_SITE=en`, port 8501 |
+
+What is shared about English articles (passages, article text, locations) lives in
+`scripts/english.py`, used by the pipeline, the GPU evaluation and the API alike.
+Query handling: authors and non-national locations named in full become filters (a single
+word that is part of an author's name boosts their articles), tags and categories boost,
+"podcast"/"ground up" filter by content type, and a bare year lists that year's items.
+
+Build (from the WP All Export CSVs, one per post type):
+
+```bash
+python scripts/en/01_prepare_english.py --input ~/english_exports   # -> data/en/final/articles_canonical.parquet
+python scripts/en/02_chunk_english.py                               # -> data/en/phase_3/chunks.parquet
+python scripts/en/03_embed_english.py                               # EN_EMBED_MODEL; reuses unchanged vectors
+python scripts/en/04_index_english.py --prune                       # own Typesense + Qdrant collections
+```
+
+`04` refuses collection names that equal the Hindi ones, and refuses vectors made with a model
+other than `EN_EMBED_MODEL`. After a model change: `03` then `04 --recreate`.
+
+First deployment on the search server:
+
+```bash
+docker exec search_postgres createdb -U searchuser searchlogs_en
+# add the EN_* lines from .env.example to .env, then build as above, then:
+sudo cp deploy/englishsearch-api.service deploy/englishsearch-test-ui.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now englishsearch-api englishsearch-test-ui
+```
+
+Both listen on 127.0.0.1 only; nginx exposes them (the test page with a password).
+
+---
+
 ## Admin panel feed
 
 The IDR tools admin panel (`https://tools.idronline.org/admin/`, in the email_format_tool repo)
@@ -446,6 +492,8 @@ shows this search on its Search tab (`/admin/search`) from `GET /api/usage` (`sc
 - searches that crashed (`search_errors` table: the error only)
 - health: articles vs. Typesense/Qdrant counts, last weekly refresh, latest `runs/*.json` test
   scores, feedback labels vs. the 200 the ranker needs, memory, disk, code version
+
+The English API serves the same feed on its own port; the panel reads it from `ENGLISH_SEARCH_USAGE_URL`.
 
 It answers only with the `X-IDR-Usage-Token` header the panel derives from the shared `SECRET_KEY`.
 That key lives in `~/idr-tools.env` on the server (never in `.env`, which is in git); the systemd

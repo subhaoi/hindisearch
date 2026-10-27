@@ -1,0 +1,17 @@
+# The English test page (search + Correct/Wrong feedback) for the team, on port 8501.
+# Install like englishsearch-api.service; put it behind nginx with a password for testers.
+[Unit]
+Description=IDR English search test page
+After=englishsearch-api.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hindisearch
+Environment=FEEDBACK_SITE=en
+Environment=SEARCH_API_BASE=http://127.0.0.1:8001
+ExecStart=/home/ubuntu/hindisearch/.venv/bin/uvicorn scripts._phase5.feedback_ui:app --host 127.0.0.1 --port 8501
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

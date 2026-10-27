@@ -1,0 +1,24 @@
+# systemd unit for the English site's search API (scripts/_phase4/english_search_api.py).
+# Runs beside the Hindi API from the same checkout; its EN_* settings are in .env.
+# Install:
+#   sudo cp deploy/englishsearch-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now englishsearch-api
+# Logs: journalctl -u englishsearch-api -f
+[Unit]
+Description=IDR English hybrid search API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hindisearch
+# SECRET_KEY for the admin panel's /api/usage, as for the Hindi API
+EnvironmentFile=-/home/ubuntu/idr-tools.env
+ExecStart=/home/ubuntu/hindisearch/.venv/bin/uvicorn scripts._phase4.english_search_api:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

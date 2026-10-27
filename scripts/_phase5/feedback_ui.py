@@ -7,6 +7,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 API_BASE = os.environ.get("SEARCH_API_BASE", "http://localhost:8000").rstrip("/")
+# hi (default) or en: which site's search this page tests; only the page's wording differs
+SITE = os.environ.get("FEEDBACK_SITE", "hi").strip().lower()
 
 app = FastAPI(title="IDR Feedback UI")
 
@@ -485,6 +487,18 @@ class LabelReq(BaseModel):
     article_id: str | None = None
     label: int
     note: str | None = None
+
+ENGLISH_WORDING = {
+    "IDR Search and Feedback": "IDR English Search and Feedback",
+    "Search (Devanagari or Hindi written in English alphabets)...": "Search IDR...",
+    "कोई भी रिजल्ट सही नहीं है": "None of the results is right",
+    "apka feedback directly save ho jayega. Niche feedback buttons hai":
+        "Your feedback is saved as soon as you click. The feedback buttons are under each result.",
+}
+if SITE == "en":
+    for hi_text, en_text in ENGLISH_WORDING.items():
+        HTML = HTML.replace(hi_text, en_text)
+
 
 @app.get("/", response_class=HTMLResponse)
 def home():

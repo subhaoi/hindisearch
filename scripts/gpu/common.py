@@ -1,7 +1,6 @@
 """Shared helpers for the GPU-session scripts: corpora, model prefixes, encoding, scoring."""
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -10,54 +9,19 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from utils import clean_title, is_nullish  # noqa: E402
+from embedding_models import PREFIXES, prefixes  # noqa: E402,F401
+from scripts.english import article_text, english_chunks  # noqa: E402
 
 # Fusion as in the search API (ranker_v2): normalised reciprocal rank, chunks weight 1.0,
 # article vectors 0.5
 RRF_K = 60
 W_CHUNK, W_ARTICLE = 1.0, 0.5
 
-# (query prefix, passage prefix, needs trust_remote_code) per model family
-PREFIXES: Dict[str, Tuple[str, str, bool]] = {
-    "e5": ("query: ", "passage: ", False),
-    "bge-": ("Represent this sentence for searching relevant passages: ", "", False),
-    "arctic-embed": ("query: ", "", True),
-    "nomic-embed": ("search_query: ", "search_document: ", True),
-    "gte-": ("", "", True),
-}
-
-
-def prefixes(model_name: str) -> Tuple[str, str, bool]:
-    name = model_name.lower()
-    for key, val in PREFIXES.items():
-        if key in name:
-            return val
-    return "", "", False
-
 
 def _s(v) -> str:
     return "" if is_nullish(v) else str(v).strip()
-
-
-def english_chunks(articles: pd.DataFrame, words: int = 220) -> pd.DataFrame:
-    """Paragraph-packed chunks of about `words` words; the first starts with title + summary (as Hindi)."""
-    rows = []
-    for r in articles.itertuples():
-        paras = [p.strip() for p in re.split(r"\n\s*\n", _s(r.content)) if p.strip()]
-        head = "\n\n".join(x for x in [_s(r.title), _s(r.summary)] if x)
-        chunks, cur, n = [], [head] if head else [], len(head.split())
-        for p in paras:
-            w = len(p.split())
-            if cur and n + w > words:
-                chunks.append("\n\n".join(cur))
-                cur, n = [], 0
-            cur.append(p)
-            n += w
-        if cur:
-            chunks.append("\n\n".join(cur))
-        for i, c in enumerate(chunks or [head]):
-            rows.append({"chunk_id": f"{r.id}_{i}", "article_id": str(r.id), "chunk_text": c})
-    return pd.DataFrame(rows)
 
 
 def load_corpus(lang: str, root: Path = Path(".")) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -71,8 +35,7 @@ def load_corpus(lang: str, root: Path = Path(".")) -> Tuple[pd.DataFrame, pd.Dat
         c = pd.read_parquet(root / "data/phase_3/chunks.parquet")[["chunk_id", "article_id", "chunk_text"]]
     else:
         a = pd.read_parquet(root / "data/en/final/articles_canonical.parquet")
-        a["article_text"] = ["\n\n".join(x for x in [_s(t), _s(st), _s(su)] if x)
-                             for t, st, su in zip(a["title"], a["seo_title"], a["summary"])]
+        a["article_text"] = [article_text(t, st, su) for t, st, su in zip(a["title"], a["seo_title"], a["summary"])]
         c = english_chunks(a)
     a["id"] = a["id"].astype(str)
     c["article_id"] = c["article_id"].astype(str)
