@@ -1,50 +1,55 @@
 # GPU session, 27 October 2026: Hindi model, English search, measurement
 
-One g5.xlarge (NVIDIA A10G) in us-east-1, on-demand, about 12 hours. Everything here was
-prepared offline; nothing calls a paid service when readers search, and nothing has been
-deployed. Code is on the `multisite` branch; models and data are on the laptop (not in git).
+One g5.xlarge (NVIDIA A10G) in us-east-1, on-demand, about 12 hours (terminated the same
+night). All model work was done offline on the GPU or the laptop; nothing calls a paid service
+when readers search. The results below were deployed the same evening, step by step, each
+with a rollback.
+
+## What is live now (`main` 252789c on the search server)
+
+| Change | Live since (27 Oct, IST) | Undo |
+|---|---|---|
+| Hindi speed fixes: cache, logging after the reply, per-step timings, 50 logged results per search | 22:20 | `git checkout pre-gpu-2026-10 && cp .env.pre-gpu-2026-10 .env`, restart `hindisearch-api` |
+| English site: API at `https://api.idronline.org/en/`, test page at `/en-test/` (password) | 22:40 | `sudo systemctl disable --now englishsearch-api englishsearch-test-ui`; nginx backup `/etc/nginx/default.pre-en-2026-10-27` |
+| Hindi on the trained model (`models/e5-base-hi-idr-v1`, int8 query encoder, Qdrant `idr_*_vec_v2`) | 22:57 | `bash deploy/hindi_model_switch.sh rollback` |
+| Partial author names (both sites), English place aliases and synonyms | late evening | `git checkout pre-names-2026-10-27`, rerun `scripts/en/04_index_english.py --prune`, restart both APIs |
+| Hindi indexes published posts only (new Status column in the Hindi exports) | takes effect at the weekly refresh, Sat 31 Oct 18:30 UTC | `git revert` the commit; the next refresh restores the items |
 
 ## Summary
 
-| | Before | After (ready, not live) |
+| | Before | After |
 |---|---|---|
-| **Hindi** search finds the question's article in its top 10 (1,500 test questions, whole search) | 66.7% | **70.9%** |
-| Hindi: the article ranked first | 37.1% | 39.9% |
+| Hindi, live server, median time per search (same 50 searches) | 604 ms | **167 ms** |
+| Hindi, live server, slowest 10% | 1.3 s | **0.8 s** |
 | Hindi: turning a search into a vector, 2 cores | 363 ms | **11 ms** |
-| Hindi query model size | 2.2 GB | 0.28 GB |
+| Hindi search finds the question's article in its top 10 (1,500 test questions, whole search) | 66.7% | **70.9%** |
+| Hindi: the article ranked first | 37.1% | 39.9% |
+| Hindi real reader searches, first result relevant (graded, same code) | 60% | **64%** |
+| Hindi hand-made test: authors in top 10 | 98% | **98%** (93% after the model switch, back to 98% with the partial-name fix) |
 | **English** search (new), top 10, whole search | | **61.1%** (58% with the untrained model) |
 
-Real reader searches (graded, same code): first result relevant 60% with the live model, 64%
-with the trained one; 42% for what readers actually got before this month's fixes.
-
-**Deployed 27 October, 22:20-22:40:** step 1 (code, speed fixes) and step 3 (English site:
-API at `https://api.idronline.org/en/`, password-protected test page at `/en-test/`). Hindi still
-switched to the trained model at 22:57 (step 2, `deploy/hindi_model_switch.sh apply`).
-
-Measured on the live server, same 50 test searches (log off), before and after the switch:
-median 604 → **167 ms**, slowest 10% 1.3 → 0.8 s, average 807 → 361 ms. Hand-made test set
-(`runs/eval_before_model_switch.json`, `..._after_...`): known items better (three move up),
-authors 98% → 93% (one name, "चन्द्र प्रताप", already weak, now missing), series unchanged.
-Hindi API memory 2.3 → 1.7 GB (less saving than estimated: libraries and data dominate). The
-`*_v1` collections stay for rollback; drop them after a quiet week (~0.3-0.4 GB).
+Most of what Hindi readers will notice comes from the code fixes of the past weeks: on real
+searches, the first result is relevant 60% of the time with today's code against 42% for what
+readers actually got before. The trained model adds a further step and makes the search
+several times faster.
 
 Tested and not adopted (details below): a reranker (+4 points, too slow for the t3 server),
-learned ranking weights and embedding Hinglish as typed (no gain).
+learned ranking weights, embedding Hinglish as typed, broad English synonyms (no gain).
 
-## Decisions for you
+## Open items
 
-Done on 27 October: `multisite` merged into `main`; step 1 (speed fixes) and step 3 (English
-site) deployed. Still open:
-
-1. **Tester login** for `/en-test/` (one command, under "Deploy", step 3), then share it.
-2. **Hindi trained model: switched 27 October 22:57.** Undo any time with
-   `bash deploy/hindi_model_switch.sh rollback`; drop the `*_v1` collections after a quiet week.
-3. **English WP All Export links** for the English weekly refresh, and the admin panel's
-   English tab (`ENGLISH_SEARCH_USAGE_URL=https://api.idronline.org/en/api/usage` on the tools server).
-4. **Server**: stay on t3.large after the model switch and watch the CPU credit balance; if it
-   still throttles, or when English goes public, `m7g.large` (2 full cores, 8 GB, similar price).
-5. **Next GPU session** (later, optional): stricter grading, more training for English, and the
-   reranker if the server gets full cores.
+1. **Sunday 1 November:** check that the weekly refresh left out the 13 unpublished Hindi
+   items (`grep -E "left out by status|Canonical articles|WARNING" logs/refresh/<latest>.log`).
+2. **After a quiet week:** drop the old `idr_articles_vec_v1` / `idr_chunks_vec_v1` collections
+   (~0.3-0.4 GB); rollback of the model switch is no longer possible after that.
+3. **When English goes public:** the int8 English query encoder (plan below), the English
+   weekly refresh (needs the English WP All Export links), and the admin panel's English tab
+   (`ENGLISH_SEARCH_USAGE_URL=https://api.idronline.org/en/api/usage` on the tools server).
+4. **Server:** stay on t3.large and watch the CPU credit balance; if it still throttles, or
+   when English goes public, `m7g.large` (2 full cores, 8 GB, similar price) after a one-hour
+   ARM test.
+5. **Next GPU session** (optional): stricter grading (the grader sees no authors and is
+   generous), more English training, and the reranker if the server gets full cores.
 
 ## How it was measured
 
@@ -57,11 +62,14 @@ site) deployed. Still open:
   questions are never trained on.
 - **Strict score**: does the question's own article come back in the top 10 (or first)?
   Understates quality, since many short questions have several right answers.
-- **Graded score**: the same model judged each (search, article) pair 0/1/2. Spot check (24
-  pairs read by hand): reliable on "not relevant", generous on "relevant", especially for junk
-  searches ("H by"). Use graded figures to compare versions, not as absolute quality.
+- **Graded score**: the same model judged each (search, article) pair 0/1/2, from title and
+  summary. Spot check (24 pairs read by hand): reliable on "not relevant", generous on
+  "relevant", especially for junk searches ("H by"). It does not see authors, so it marks an
+  author's article "not relevant" for a search of the author's name. Use graded figures to
+  compare versions, not as absolute quality.
 - **Whole-search tests** ran the real search code (keywords, entities, vectors, ranking) on the
-  laptop against local copies of Typesense/Qdrant built from the same data as production.
+  laptop against local copies of Typesense/Qdrant built from the same data as production
+  (`scripts/29_eval_search_on_questions.py`), and on the live server with logging off.
 
 ## Hindi
 
@@ -108,8 +116,8 @@ Graded (same questions; any article the grader judged relevant counts; all top-1
 | nDCG@10 | 0.861 | 0.869 |
 
 The grader is generous, so the levels run high; the direction agrees with the strict test.
-Weak spot for both: searches that are a name (person, organisation): first result relevant
-only ~40% of the time.
+Name searches looked weak here (first result relevant ~40%), but that is the grader not
+seeing authors: 40 of 41 author-name test questions return that author's article first.
 
 ### Real reader searches (846 logged searches, junk removed; graded)
 
@@ -122,9 +130,10 @@ result graded:
 | First result relevant | 42% | 60% | **64%** |
 | Relevant articles in the top 3 (average) | 1.0 | 1.4 | **1.6** |
 
-Most of the gain comes from the code fixes of the past weeks (live since 27 October, 22:20);
-the trained model adds a further step on the same code (first result better on 86 searches,
-worse on 52), and is ~30x faster at its step. Grades are generous: compare columns, not levels.
+With the same code, the trained model's first result is better on 86 searches and worse on 52
+(p ≈ 0.005). Of the 52, 29 have a relevant article second and 5 third; several are junk
+searches the filter missed. Genuine misses include "dastwejo ke makadjaal me fsta" (a
+misspelt Hinglish title) and "aser".
 
 ### Speed (query encoding, 2 cores)
 
@@ -138,6 +147,26 @@ worse on 52), and is ~30x faster at its step. Grades are generous: compare colum
 
 `reduce_range` matters on x86 CPUs without VNNI (the int8 maths saturates otherwise). It is
 now the default in `scripts/25_export_onnx_query_encoder.py`.
+
+On the live server (same 50 test searches, logging off), the whole search went from median
+604 ms to 167 ms, slowest 10% 1.3 s to 0.8 s, average 807 ms to 361 ms. Hindi API memory
+went from 2.3 to 1.7 GB, less than estimated: the libraries and article data dominate.
+
+### Name searches
+
+Full author names already worked. The gap was part of a longer name: "चन्द्र प्रताप" (चंद्र
+प्रताप सिंह) and "दीप ज्योति" (दीप ज्योति सोनू ब्रह्मा) were not recognised, because only a
+full name or a single word counted. Now any query made only of consecutive words of an
+author's name boosts that author, in Devanagari, Hinglish and on the English site; topic
+phrases ("महिला किसान") are not affected. Hand-made test, authors: top 10 93% → 98%, mrr
+0.96 → 1.00; test questions unchanged (70.9%).
+
+### Unpublished items
+
+13 Hindi items had no real permalink (`?post_type=…&p=…`): 10 copies of published articles
+(e.g. "बैगा समुदाय…" twice) and 3 empty. The Hindi exports had no Status column. It has been
+added to the three export templates, and `scripts/00_concat_raw_exports.py` now keeps
+`publish` only (without the column, nothing changes and the refresh warns).
 
 ### Tried, not adopted
 
@@ -164,9 +193,10 @@ re-timing on full cores (m7g) if the server changes.
 - Fine-tuned on 37,835 training questions (`models/e5-base-v2-en-idr-v1`): vectors alone
   49.4% → 54.9%; whole search 57.8% → **61.1%** (first 27.3% → 29.0%), 122 ms per search on
   the laptop.
-- Weakest type: Indian terms (anganwadi, gram panchayat, MGNREGA) at 20%, partly because many
-  items match them. Some generated "Indian term" questions are Hinglish nobody types on the
-  English site ("khet ki pump"); to be dropped from English targets.
+- Indian terms (anganwadi, gram panchayat, MGNREGA) score 20% strict but 79% first-result
+  relevant graded: many items match them, so the "one right article" test understates them.
+  Some generated "Indian term" questions are Hinglish nobody types on the English site
+  ("khet ki pump"); to be dropped from English targets.
 
 Graded (1,500 test questions, all top-10 results graded):
 
@@ -176,113 +206,64 @@ Graded (1,500 test questions, all top-10 results graded):
 | First result relevant | 71.8% | **73.5%** |
 | Relevant items in the top 3 (average) | 1.85 | **1.89** |
 
-Indian-term searches: first result relevant 79% (graded) against 20% strict, so the strict
-figure was mostly the "one right article" effect. Names are the weak spot (first result
-relevant ~50%), as in Hindi.
-
 ### What the English search does (code: `scripts/_phase4/english_search_api.py`)
 
 Same request/response contract as Hindi (`scripts/_phase4/api_common.py`), own Typesense and
 Qdrant collections, own log database, `EN_*` settings. Authors named in full and non-national
-places become filters; one word of an author's name boosts their items; "podcast"/"ground up"
-filter by type; a bare year lists that year; junk is rejected; results are cached; the log is
-written after the reply; usage feed for the admin panel; test page (`FEEDBACK_SITE=en`).
+places become filters; one word, or consecutive words, of an author's name boost their items;
+place aliases (Orissa → Odisha, Kashmir → Jammu and Kashmir, from `config/location_aliases.json`)
+count for queries and for places named in text; "podcast"/"ground up" filter by type; a bare
+year lists that year; junk is rejected; results are cached; the log is written after the
+reply; usage feed for the admin panel; test page (`FEEDBACK_SITE=en`).
 
-### Next for English (no GPU), in order
+Synonyms (`config/synonyms_en_v1.json`, loaded by `scripts/en/04_index_english.py`): 29
+groups of acronyms, spellings and old city names (CSR, SHG, FCRA, MGNREGA spellings,
+Bombay/Mumbai…). On the English test questions: trained 61.1%, + place aliases 60.8%, + tight
+synonyms 60.7%, + all synonyms 60.3% (within noise). Broad groups (jobs/employment,
+funding/grants, agriculture/farming…) widened every search that used those words and were
+left out.
 
-1. **Name searches** (authors, organisations): the first result is relevant only ~50% of the
-   time (Hindi ~40%). Find why they miss (spelling variants, organisation names that are not
-   in the author list, partial names) and fix for both sites.
-2. ONNX int8 query encoder for the English API (needs an `EN_EMBED_BACKEND` switch, as Hindi).
-3. Synonyms from the English members of `config/synonyms_v1.json` (NREGA/MGNREGA, CSR, ASHA,
-   SHG, FCRA…) and place aliases from `config/location_aliases.json` (Orissa → Odisha,
-   Bombay → Mumbai). Cheap; modest gain, since Indian-term searches already do well graded.
-4. A small hand-written English test set (known items, authors, series).
-5. Ranking weights from the English grades (`scripts/37_learn_ranker_weights.py`); low
+### Next for English (no GPU), when it goes public
+
+1. Int8 query encoder: `scripts/25_export_onnx_query_encoder.py --model
+   models/e5-base-v2-en-idr-v1`, an `EN_EMBED_BACKEND` switch in the English API (as Hindi),
+   test with `29_eval_search_on_questions.py` on `split_en`, then copy ~110 MB to the server.
+   Expected: ~80 → ~10 ms per query, 0.3-0.5 GB less memory.
+2. Weekly refresh for English (needs the English export links).
+3. A small hand-written English test set (known items, authors, series).
+4. Ranking weights from the English grades (`scripts/37_learn_ranker_weights.py`); low
    expectation (no gain for Hindi), quick to check.
-6. Weekly refresh for English (needs the English export links), and author aliases.
 
-## Deploy
+## Deployment record
 
-Every step can be undone. Two steps, a day or two apart, so each shows its own effect in the
-per-step timings.
+All on 27 October, with the user's go-ahead for each batch.
 
-### Step 1: code (speed fixes, model setting, English service), after `multisite` is merged
+**Step 1, code and speed fixes (22:20).** Tagged the running version `pre-gpu-2026-10`,
+backed up `.env` to `.env.pre-gpu-2026-10`, pulled `main`, set `LOG_CANDIDATES_TOPN=50`,
+restarted `hindisearch-api`.
 
-```bash
-cd ~/hindisearch
-git tag pre-gpu-2026-10            # the version running now, to come back to
-cp .env .env.pre-gpu-2026-10
-git pull
-sed -i 's/^LOG_CANDIDATES_TOPN=200/LOG_CANDIDATES_TOPN=50/' .env
-sudo systemctl restart hindisearch-api
-```
-
-Behaviour changes only by the speed fixes: the model settings default to today's model.
-**Undo:** `git checkout pre-gpu-2026-10 && cp .env.pre-gpu-2026-10 .env && sudo systemctl restart hindisearch-api`
-(then `git checkout main` again when ready).
-
-### Step 2: the trained Hindi model (`deploy/hindi_model_switch.sh`)
-
-Copy from the laptop to `~/hindisearch` on the server (about 1.4 GB):
-
-```bash
-# on the laptop, from the repo folder
-rsync -a models/e5-base-hi-idr-v1 ubuntu@13.127.105.2:hindisearch/models/
-rsync -a --exclude onnx/model.onnx models/e5-base-hi-idr-v1-onnx ubuntu@13.127.105.2:hindisearch/models/
-rsync -a data/phase_3_ft ubuntu@13.127.105.2:hindisearch/data/
-```
-
-Then on the server:
-
-```bash
-bash deploy/hindi_model_switch.sh status     # what is live now
-bash deploy/hindi_model_switch.sh apply      # backup, build *_v2 beside the current collections,
-                                             # switch settings, restart, smoke-test
-```
-
-`apply` keeps the current model, collections and vector files, and rolls back by itself if
-the test searches fail. The API also refuses to start if model and collections don't match.
-**Undo at any time:** `bash deploy/hindi_model_switch.sh rollback`. If a weekly refresh ran
-in between, run one refresh afterwards so the old collections get the newer articles.
-Not run end to end yet (needs the server's service); each step in it was run locally tonight.
-
-### Step 3: English test site (with either step; separate from Hindi)
-
-`README.md`, "English site search": a log database, `EN_*` settings
-(`EN_EMBED_MODEL=models/e5-base-v2-en-idr-v1`, collections `idr_en_*_v1`), the model and
-`data/en/` copied from the laptop (`data/en/phase_3_ft/` vectors into `data/en/phase_3/`), then
-`scripts/en/04_index_english.py --prune`, two services, and an nginx location with a password.
-**Undo:** `sudo systemctl disable --now englishsearch-api englishsearch-test-ui` and remove
-the nginx location. Hindi is not touched.
-
-Done on 27 October: API at `https://api.idronline.org/en/` (e.g. `POST /en/search`), test page
-at `https://api.idronline.org/en-test/`, nginx backup at `/etc/nginx/default.pre-en-2026-10-27`.
-The test page refuses everyone until a login is added (no reload needed; repeat per tester):
+**Step 3, English site (22:40).** Copied the English model and `data/en/` from the laptop
+(`data/en/phase_3_ft/` vectors into `data/en/phase_3/`), created the `searchlogs_en` database,
+added the `EN_*` settings, ran `scripts/en/04_index_english.py --prune`, installed
+`englishsearch-api` and `englishsearch-test-ui`, added nginx locations `/en/` and `/en-test/`
+(basic auth). Testers are added with:
 
 ```bash
 sudo sh -c "printf 'idrtest:%s\n' \"\$(openssl passwd -apr1)\" >> /etc/nginx/.htpasswd-en-test"
 ```
 
-## After the session (27 October, late evening; live, `main` f8f978b)
+**Step 2, trained Hindi model (22:57).** Copied `models/e5-base-hi-idr-v1/`,
+`models/e5-base-hi-idr-v1-onnx/` (without `onnx/model.onnx`) and `data/phase_3_ft/` to the
+server, then `bash deploy/hindi_model_switch.sh apply`: backs up `.env` and the vector files to
+`data/backups/pre-model-switch`, builds `*_v2` beside the current collections, switches the
+settings, restarts and smoke-tests (rolling back by itself on failure). Check with `status`,
+undo with `rollback`. If a weekly refresh ran in between, run one refresh after a rollback so
+the old collections get the newer articles.
 
-- **Name searches.** Full author names already worked (40 of 41 test questions return that
-  author first); the "names are weak" figure came from the grader, which sees titles and
-  summaries but not authors. The real gap was part of a longer name: "चन्द्र प्रताप" (चंद्र
-  प्रताप सिंह), "दीप ज्योति" (दीप ज्योति सोनू ब्रह्मा). Now any query made only of consecutive
-  words of an author's name boosts that author, in Devanagari, Hinglish and on the English
-  site. Hindi hand-made authors: p@10 0.93 → 0.98, mrr 0.96 → 1.00; test questions unchanged.
-- **English place aliases** (Orissa → Odisha, Kashmir → Jammu and Kashmir, Bengal → West
-  Bengal…, from `config/location_aliases.json`) for queries and for places named in text.
-- **English synonyms** (`config/synonyms_en_v1.json`, 29 groups: acronyms, spellings, old city
-  names). Broad groups (jobs/employment, funding/grants…) lowered the test score and were left out.
-- Rollback: `git checkout pre-names-2026-10-27`, rerun `scripts/en/04_index_english.py --prune`,
-  restart both APIs.
+**Names, English aliases and synonyms (late evening).** Tag `pre-names-2026-10-27`, pull,
+`scripts/en/04_index_english.py --prune`, restart both APIs (run by the user).
 
-Open: **13 Hindi items without a published web address** (`?post_type=…&p=…`), 10 of them
-duplicates of published articles and 3 empty: the Hindi exports have no Status column. Either
-add Status to the three Hindi export templates (and keep `publish` only, as for English), or
-skip such items in the pipeline.
+**Published-only filter.** Pulled on the server; applies at the next weekly refresh.
 
 ## Files
 
@@ -292,10 +273,12 @@ skip such items in the pipeline.
 | LLM grades | `data/judgments/hi.parquet`, `en.parquet` |
 | Hindi trained model, int8, vectors | `models/e5-base-hi-idr-v1`, `models/e5-base-hi-idr-v1-onnx`, `data/phase_3_ft/` |
 | English trained model, vectors | `models/e5-base-v2-en-idr-v1`, `data/en/phase_3_ft/` |
-| Rerankers | `models/hi-reranker-v1`, `models/hi-reranker-v1-onnx`, `models/hi-reranker-l6-v1` (GPU only) |
-| All measurements | `runs/gpu/*.json` |
-| Local preview (search engines, database, Python) | `~/idr-en-preview/` |
+| Rerankers | `models/hi-reranker-v1`, `models/hi-reranker-v1-onnx` |
+| All measurements | `runs/gpu/*.json`; live before/after: `runs/eval_before_model_switch.json`, `runs/eval_after_model_switch.json` (on the server) |
+| GPU job logs and scripts | `logs/gpu-session/` |
+| Local test copies (search engines, database, Python) | `~/idr-en-preview/` (stopped) |
 
 Scripts: `scripts/gpu/` (setup, question split, vector scoring, fine-tuning, grading, reranker,
 job chains), `scripts/29_eval_search_on_questions.py` (whole search on test questions),
-`scripts/37_learn_ranker_weights.py`, `scripts/en/` (English pipeline).
+`scripts/37_learn_ranker_weights.py`, `scripts/en/` (English pipeline),
+`deploy/hindi_model_switch.sh` (Hindi model switch and rollback).
