@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import os
+import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 import json
 import re
@@ -10,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 import typesense
@@ -50,7 +52,8 @@ LEXICAL_TOPK = int(os.environ.get("LEXICAL_TOPK", "80"))
 SEM_ARTICLE_TOPK = int(os.environ.get("SEM_ARTICLE_TOPK", "40"))
 SEM_CHUNK_TOPK = int(os.environ.get("SEM_CHUNK_TOPK", "80"))
 CANDIDATE_CAP = int(os.environ.get("CANDIDATE_CAP", "200"))
-LOG_CANDIDATES_TOPN = int(os.environ.get("LOG_CANDIDATES_TOPN", "200"))
+# Results per search kept for ranker training; feedback is given on the first pages
+LOG_CANDIDATES_TOPN = int(os.environ.get("LOG_CANDIDATES_TOPN", "50"))
 
 TS_COLLECTION = os.environ.get("TYPESENSE_COLLECTION", "idr_articles_hi_v1")
 
@@ -570,11 +573,41 @@ def health() -> Dict[str, Any]:
     return {"ok": True, "ranker_version": RANKER_VERSION, "retrieval_version": RETRIEVAL_VERSION}
 
 
+# Ranked results per query, kept until the API restarts. The weekly refresh restarts it, so a
+# cached result never outlives the data it came from. Repeated searches ("2026" and "2027" are
+# about a third of all searches) then skip retrieval entirely.
+SEARCH_CACHE_SIZE = int(os.environ.get("SEARCH_CACHE_SIZE", "128"))
+_search_cache: "OrderedDict[Tuple[str, str, str], Dict[str, Any]]" = OrderedDict()
+_search_cache_lock = threading.Lock()
+
+
+def _cache_key(query: str, filter_by: Optional[str], ranker_version: str) -> Tuple[str, str, str]:
+    return " ".join(query.split()).casefold(), filter_by or "", ranker_version
+
+
+def _cache_get(key: Tuple[str, str, str]) -> Optional[Dict[str, Any]]:
+    with _search_cache_lock:
+        hit = _search_cache.get(key)
+        if hit is not None:
+            _search_cache.move_to_end(key)
+        return hit
+
+
+def _cache_put(key: Tuple[str, str, str], value: Dict[str, Any]) -> None:
+    if SEARCH_CACHE_SIZE <= 0:
+        return
+    with _search_cache_lock:
+        _search_cache[key] = value
+        _search_cache.move_to_end(key)
+        while len(_search_cache) > SEARCH_CACHE_SIZE:
+            _search_cache.popitem(last=False)
+
+
 @app.post("/search", response_model=SearchResponse)
-def search(req: SearchRequest) -> SearchResponse:
+def search(req: SearchRequest, background_tasks: BackgroundTasks) -> SearchResponse:
     started = time.perf_counter()
     try:
-        return run_search(req, started)
+        return run_search(req, started, background_tasks)
     except HTTPException:
         raise
     except Exception as e:
@@ -583,98 +616,26 @@ def search(req: SearchRequest) -> SearchResponse:
         raise
 
 
-def run_search(req: SearchRequest, started: float) -> SearchResponse:
+def run_search(req: SearchRequest, started: float, background_tasks: BackgroundTasks) -> SearchResponse:
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="Empty query")
     ranker_version = req.ranker or RANKER_VERSION
     if ranker_version not in RANKERS:
         raise HTTPException(status_code=400, detail=f"ranker must be one of {sorted(RANKERS)}")
 
-    kind, year = classify_query(req.query)
+    kind, _ = classify_query(req.query)
     if kind == "junk":
         # Exploit probes and strings with no letters: nothing to search, and not worth logging
         return SearchResponse(query_id=0, mode="junk", query_used="", query_semantic="", total_results=0,
                               total_pages=1, page=1, per_page=max(1, int(req.per_page)), results=[])
 
-    # A pasted paragraph: keep the first MAX_QUERY_TOKENS words
-    query_text = " ".join(req.query.split()[:MAX_QUERY_TOKENS])
-    extra_filters: List[str] = []
-    series_ids: Optional[set] = None
-    series: List[str] = []
-    if kind == "year":
-        # A bare year ("2026") lists that year's articles, newest first
-        start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
-        end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
-        extra_filters.append(f"published_ts:>={start} && published_ts:<{end}")
-        series_ids = {a for a, m in articles_meta.items() if start <= int(m.get("published_ts") or 0) < end}
-        if not series_ids:
-            # No articles from that year yet ("2027"): show the newest articles instead of an empty page
-            extra_filters, series_ids = [], None
-        query_text = ""
-    else:
-        # "फोटो निबंध जलवायु" -> filter to photo essays, search "जलवायु" within them
-        series, query_text = detect_series(query_text, series_config)
-        if series:
-            extra_filters.append(f"series:=[{','.join(series)}]")
-            series_ids = {a for a, m in articles_meta.items() if set(m.get("series") or []) & set(series)}
-
-    browse = not query_text.strip()
-    if browse:
-        mode = canonicalize_query_for_search(req.query)["mode"]
-        canon = {"raw": req.query, "mode": mode, "q": "*", "q_stem": "*", "q_full": "", "roman_norm": ""}
-    else:
-        canon = canonicalize_query_for_search(query_text)
-        mode = canon["mode"]
-        if mode in ("roman", "mixed"):
-            canon["q_gloss"] = glossary_hindi_terms(query_text)
-    query_used = canon["q"]  # lexical/canonicalized
-
-    entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
-    hard = entity.get("hard", {})
-
-    filter_parts = [f for f in [req.filter_by, entity.get("filter_by_auto"), *extra_filters] if f]
-    filter_final = " && ".join(f"({f})" for f in filter_parts) if len(filter_parts) > 1 else (filter_parts[0] if filter_parts else None)
-
-    hard_contributors = hard.get("contributors_norm") or []
-    hard_locations = hard.get("locations_norm") or []
-    has_author_entity = bool(hard_contributors)
-    has_location_entity = bool(hard_locations)
-
-    # Restrict Qdrant to the same articles the Typesense filter allows.
-    qdrant_article_ids: Optional[List[str]] = None
-    if has_author_entity or has_location_entity:
-        ids: Optional[set] = None
-        if has_author_entity:
-            ids = set(get_article_ids_with("contributors_norm", hard_contributors))
-        if has_location_entity:
-            loc_ids = set(get_article_ids_with("locations_all", hard_locations))
-            ids = loc_ids if ids is None else (ids & loc_ids) or ids
-        qdrant_article_ids = sorted(ids) if ids else None
-    if series_ids is not None:
-        ids2 = series_ids if qdrant_article_ids is None else (series_ids & set(qdrant_article_ids))
-        qdrant_article_ids = sorted(ids2) if ids2 else ["__none__"]
-
-    lex = typesense_search(canon, filter_by=filter_final)
-    if browse:
-        # Nothing to match semantically; the filtered keyword list is already newest-first
-        query_semantic, sem_a, sem_c = "", [], []
-    else:
-        query_semantic = build_semantic_query(query_text, mode, entity.get("strip_tokens") or [])
-        q_vec = encode_query(query_semantic)
-        sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
-        sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)
-
-    candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
-
-    now_ts = int(time.time())
-    if ranker_version == "ranker_v1":
-        ranked = ranker_v1(candidates, tokenize_query(query_used), now_ts=now_ts,
-                           has_author_entity=has_author_entity, has_location_entity=has_location_entity)
-    else:
-        weights = ranker_v2_weights
-        if entity.get("name_query"):
-            weights = {**weights, "match_contributor": max(weights.get("match_contributor", 0.0), NAME_QUERY_CONTRIBUTOR_WEIGHT)}
-        ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=weights)
+    key = _cache_key(req.query, req.filter_by, ranker_version)
+    res = _cache_get(key)
+    cached = res is not None
+    if res is None:
+        res = retrieve(req.query, req.filter_by, ranker_version)
+        _cache_put(key, res)
+    ranked = res["ranked"]
 
     per_page = max(1, int(req.per_page))
     page = max(1, int(req.page))
@@ -715,69 +676,182 @@ def run_search(req: SearchRequest, started: float) -> SearchResponse:
         qid = insert_query(
             engine=engine,
             query_raw=req.query,
-            query_mode=mode,
-            query_used=query_used,
-            query_semantic=query_semantic,
+            query_mode=res["mode"],
+            query_used=res["query_used"],
+            query_semantic=res["query_semantic"],
             filters={"filter_by": req.filter_by} if req.filter_by else None,
             ranker_version=ranker_version,
             retrieval_version=RETRIEVAL_VERSION,
-            meta={
-                "lex_n": len(lex),
-                "sem_article_n": len(sem_a),
-                "sem_chunk_n": len(sem_c),
-                "cand_n": len(candidates),
-                "entity_matches": entity.get("matches", {}),
-                "entity_hard": hard,
-                "entity_confidence": entity.get("confidence", {}),
-                "filter_by_auto": entity.get("filter_by_auto"),
-                "filter_by_final": filter_final,
-                "has_author_entity": has_author_entity,
-                "has_location_entity": has_location_entity,
-                "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
-                "query_semantic_used": query_semantic,
-                "query_kind": kind,
-                "series": series,
-                "name_query": bool(entity.get("name_query")),
-                "query_gloss": canon.get("q_gloss"),
-                "took_s": round(time.perf_counter() - started, 2),
-            },
+            meta={**res["meta"], "cached": cached, "took_s": round(time.perf_counter() - started, 2)},
         )
-
-        topn = min(LOG_CANDIDATES_TOPN, len(ranked))
-        to_log: List[Dict[str, Any]] = []
-        for item in ranked[:topn]:
-            to_log.append(
-                {
-                    "rank": item["rank"],
-                    "article_id": item["article_id"],
-                    "url": item.get("url"),
-                    "title": item.get("title"),
-                    "published_date": item.get("published_date"),
-                    "summary": item.get("summary"),
-                    "primary_category": item.get("primary_category"),
-                    "categories": item.get("categories") or [],
-                    "tags": item.get("tags") or [],
-                    "location": item.get("location") or [],
-                    "partner_label": item.get("partner_label"),
-                    "contributors": item.get("contributors") or [],
-                    "score": float(item["score"]),
-                    "features": item["features"],
-                    "explanation": item.get("explanation"),
-                }
-            )
-        insert_candidates(engine, qid, to_log)
+        # The ranked list (for ranker training) is written after the reply has gone out
+        background_tasks.add_task(log_candidates, qid, ranked)
 
     return SearchResponse(
         query_id=qid,
-        mode=mode,
-        query_used=query_used,
-        query_semantic=query_semantic,
+        mode=res["mode"],
+        query_used=res["query_used"],
+        query_semantic=res["query_semantic"],
         total_results=total_results,
         total_pages=total_pages,
         page=page,
         per_page=per_page,
         results=hits,
     )
+
+
+def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
+    """Background task: the top LOG_CANDIDATES_TOPN results with their ranking features."""
+    topn = min(LOG_CANDIDATES_TOPN, len(ranked))
+    to_log: List[Dict[str, Any]] = []
+    for item in ranked[:topn]:
+        to_log.append(
+            {
+                "rank": item["rank"],
+                "article_id": item["article_id"],
+                "url": item.get("url"),
+                "title": item.get("title"),
+                "published_date": item.get("published_date"),
+                "summary": item.get("summary"),
+                "primary_category": item.get("primary_category"),
+                "categories": item.get("categories") or [],
+                "tags": item.get("tags") or [],
+                "location": item.get("location") or [],
+                "partner_label": item.get("partner_label"),
+                "contributors": item.get("contributors") or [],
+                "score": float(item["score"]),
+                "features": item["features"],
+                "explanation": item.get("explanation"),
+            }
+        )
+    try:
+        insert_candidates(engine, qid, to_log)
+    except Exception as e:  # noqa: BLE001 - the reply has already gone; just report it
+        print(f"[candidate_log] query {qid}: {type(e).__name__}: {e}")
+
+
+def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[str, Any]:
+    """
+    The expensive part of a search: understand the query, retrieve from Typesense and Qdrant,
+    rank. Returns what the response and the log need; cached per query (see _search_cache).
+    """
+    kind, year = classify_query(query)
+    # A pasted paragraph: keep the first MAX_QUERY_TOKENS words
+    query_text = " ".join(query.split()[:MAX_QUERY_TOKENS])
+    extra_filters: List[str] = []
+    series_ids: Optional[set] = None
+    series: List[str] = []
+    if kind == "year":
+        # A bare year ("2026") lists that year's articles, newest first
+        start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
+        end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
+        extra_filters.append(f"published_ts:>={start} && published_ts:<{end}")
+        series_ids = {a for a, m in articles_meta.items() if start <= int(m.get("published_ts") or 0) < end}
+        if not series_ids:
+            # No articles from that year yet ("2027"): show the newest articles instead of an empty page
+            extra_filters, series_ids = [], None
+        query_text = ""
+    else:
+        # "फोटो निबंध जलवायु" -> filter to photo essays, search "जलवायु" within them
+        series, query_text = detect_series(query_text, series_config)
+        if series:
+            extra_filters.append(f"series:=[{','.join(series)}]")
+            series_ids = {a for a, m in articles_meta.items() if set(m.get("series") or []) & set(series)}
+
+    browse = not query_text.strip()
+    if browse:
+        mode = canonicalize_query_for_search(query)["mode"]
+        canon = {"raw": query, "mode": mode, "q": "*", "q_stem": "*", "q_full": "", "roman_norm": ""}
+    else:
+        canon = canonicalize_query_for_search(query_text)
+        mode = canon["mode"]
+        if mode in ("roman", "mixed"):
+            canon["q_gloss"] = glossary_hindi_terms(query_text)
+    query_used = canon["q"]  # lexical/canonicalized
+
+    entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
+    hard = entity.get("hard", {})
+
+    filter_parts = [f for f in [filter_by, entity.get("filter_by_auto"), *extra_filters] if f]
+    filter_final = " && ".join(f"({f})" for f in filter_parts) if len(filter_parts) > 1 else (filter_parts[0] if filter_parts else None)
+
+    hard_contributors = hard.get("contributors_norm") or []
+    hard_locations = hard.get("locations_norm") or []
+    has_author_entity = bool(hard_contributors)
+    has_location_entity = bool(hard_locations)
+
+    # Restrict Qdrant to the same articles the Typesense filter allows.
+    qdrant_article_ids: Optional[List[str]] = None
+    if has_author_entity or has_location_entity:
+        ids: Optional[set] = None
+        if has_author_entity:
+            ids = set(get_article_ids_with("contributors_norm", hard_contributors))
+        if has_location_entity:
+            loc_ids = set(get_article_ids_with("locations_all", hard_locations))
+            ids = loc_ids if ids is None else (ids & loc_ids) or ids
+        qdrant_article_ids = sorted(ids) if ids else None
+    if series_ids is not None:
+        ids2 = series_ids if qdrant_article_ids is None else (series_ids & set(qdrant_article_ids))
+        qdrant_article_ids = sorted(ids2) if ids2 else ["__none__"]
+
+    timings: Dict[str, float] = {}
+    t = time.perf_counter()
+    lex = typesense_search(canon, filter_by=filter_final)
+    timings["t_typesense"] = time.perf_counter() - t
+    if browse:
+        # Nothing to match semantically; the filtered keyword list is already newest-first
+        query_semantic, sem_a, sem_c = "", [], []
+    else:
+        query_semantic = build_semantic_query(query_text, mode, entity.get("strip_tokens") or [])
+        t = time.perf_counter()
+        q_vec = encode_query(query_semantic)
+        timings["t_embed"] = time.perf_counter() - t
+        t = time.perf_counter()
+        sem_a = qdrant_search_articles(q_vec, article_ids=qdrant_article_ids)
+        sem_c = qdrant_search_chunks(q_vec, article_ids=qdrant_article_ids)
+        timings["t_qdrant"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    candidates = build_candidates(lex, sem_a, sem_c, entity_conf=entity.get("confidence"))
+
+    now_ts = int(time.time())
+    if ranker_version == "ranker_v1":
+        ranked = ranker_v1(candidates, tokenize_query(query_used), now_ts=now_ts,
+                           has_author_entity=has_author_entity, has_location_entity=has_location_entity)
+    else:
+        weights = ranker_v2_weights
+        if entity.get("name_query"):
+            weights = {**weights, "match_contributor": max(weights.get("match_contributor", 0.0), NAME_QUERY_CONTRIBUTOR_WEIGHT)}
+        ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=weights)
+
+    timings["t_rank"] = time.perf_counter() - t
+
+    return {
+        "mode": mode,
+        "query_used": query_used,
+        "query_semantic": query_semantic,
+        "ranked": ranked,
+        "meta": {
+            "lex_n": len(lex),
+            "sem_article_n": len(sem_a),
+            "sem_chunk_n": len(sem_c),
+            "cand_n": len(candidates),
+            "entity_matches": entity.get("matches", {}),
+            "entity_hard": hard,
+            "entity_confidence": entity.get("confidence", {}),
+            "filter_by_auto": entity.get("filter_by_auto"),
+            "filter_by_final": filter_final,
+            "has_author_entity": has_author_entity,
+            "has_location_entity": has_location_entity,
+            "qdrant_filter_ids_n": len(qdrant_article_ids) if qdrant_article_ids else 0,
+            "query_semantic_used": query_semantic,
+            "query_kind": kind,
+            "series": series,
+            "name_query": bool(entity.get("name_query")),
+            "query_gloss": canon.get("q_gloss"),
+            **{k: round(v, 3) for k, v in timings.items()},
+        },
+    }
 
 
 @app.get("/api/usage")

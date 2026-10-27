@@ -147,10 +147,13 @@ def insert_candidates(engine: Engine, query_id: int, ranked: List[Dict[str, Any]
         )
         """
     )
+    if not ranked:
+        return
+    # One executemany instead of a round trip per row
     with engine.begin() as conn:
-        for r in ranked:
-            conn.execute(
-                stmt,
+        conn.execute(
+            stmt,
+            [
                 {
                     "qid": query_id,
                     "rank": int(r["rank"]),
@@ -168,8 +171,10 @@ def insert_candidates(engine: Engine, query_id: int, ranked: List[Dict[str, Any]
                     "score": float(r["score"]),
                     "features": json.dumps(r["features"]),
                     "explanation": json.dumps(r.get("explanation")),
-                },
-            )
+                }
+                for r in ranked
+            ],
+        )
 
 
 def insert_label(engine: Engine, query_id: int, article_id: Optional[str], label: int, note: Optional[str]) -> None:

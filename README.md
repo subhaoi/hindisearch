@@ -418,6 +418,22 @@ python scripts/26_eval_rules.py --save runs/after.json --compare runs/before.jso
 
 ---
 
+## Speed
+
+- **Cache**: the ranked results of the last `SEARCH_CACHE_SIZE` (default 128) distinct searches are kept
+  in memory until the API restarts. The weekly refresh restarts it, so cached results never outlive
+  the data. Repeats ("2026", "2027" are about a third of all searches) skip retrieval; paging a
+  search also comes from the cache. Every search is still logged (`meta.cached`).
+- **Logging after the reply**: the search row is written at once (its id goes back to the page for
+  feedback); the ranked list for ranker training (`LOG_CANDIDATES_TOPN`, default 50) is written in
+  the background, in one batch.
+- **Where the time goes**: each logged search has `took_s` and per-stage `t_typesense`, `t_embed`,
+  `t_qdrant`, `t_rank` (seconds) in `query_log.meta`.
+- **Faster query encoding**: the ONNX int8 encoder (`EMBED_BACKEND=onnx`, see
+  `25_export_onnx_query_encoder.py`) is about 2-3x faster on CPU.
+
+---
+
 ## Admin panel feed
 
 The IDR tools admin panel (`https://tools.idronline.org/admin/`, in the email_format_tool repo)
