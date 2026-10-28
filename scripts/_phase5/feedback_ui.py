@@ -145,6 +145,10 @@ HTML = """
     .meta-top{ display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; font-size:14px; color: var(--muted); margin-bottom: 4px; }
     .date{ font-weight:700; color: var(--text); }
     .badge{ background:#f0f0f0; border-radius: 6px; padding: 1px 8px; font-size:13px; color:#333; }
+    .langs{ display:inline-flex; gap:5px; margin-left:auto; }
+    .lang{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px;
+      color:#fff; font-weight:800; font-size:11px; letter-spacing:.04em; text-decoration:none; }
+    .lang:hover{ filter: brightness(1.15); }
     .title{ font-size: 20px; line-height: 1.3; font-weight: 700; margin: 0 0 6px; }
     .title a{ color: var(--text); text-decoration:none; }
     .title a:hover{ text-decoration: underline; }
@@ -215,6 +219,17 @@ HTML = """
     let sortMode = "best";
     let visible = 10;
     let ratings = {};   // article id -> 1 / 0, for this search
+
+    // The same piece in other languages (English site): colour and name in its own script
+    const LANGS = {HI: ["हिंदी", "#B45309"], BN: ["বাংলা", "#15803D"], MR: ["मराठी", "#7E22CE"],
+                   GU: ["ગુજરાતી", "#1D4ED8"], KN: ["ಕನ್ನಡ", "#BE185D"]};
+    function langSquares(list){
+      const items = (list || []).filter(x => LANGS[x.lang]);
+      if(!items.length) return "";
+      return `<span class="langs">` + items.map(x =>
+        `<a class="lang" style="background:${LANGS[x.lang][1]}" href="${escapeHtml(x.url)}" target="_blank" rel="noreferrer" title="${LANGS[x.lang][0]}">${x.lang}</a>`
+      ).join("") + `</span>`;
+    }
 
     function el(id){ return document.getElementById(id); }
     function fmt(s, n){ return s.replace("{n}", n); }
@@ -304,6 +319,7 @@ HTML = """
             ${niceDate(hit.date) ? `<span class="date">${escapeHtml(niceDate(hit.date))}</span>` : ``}
             ${type ? `<span class="badge">${escapeHtml(type)}</span>` : ``}
             ${category ? `<span>${escapeHtml(category)}</span>` : ``}
+            ${langSquares(hit.translations)}
           </div>
           <div class="title">${hit.url ? `<a href="${escapeHtml(hit.url)}" target="_blank" rel="noreferrer">${escapeHtml(hit.title)}</a>` : escapeHtml(hit.title)}</div>
           ${hit.summary ? `<p class="summary">${escapeHtml(hit.summary)}</p>` : ``}

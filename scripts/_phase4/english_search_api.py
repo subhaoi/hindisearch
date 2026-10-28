@@ -95,6 +95,9 @@ for _, r in articles_df.iterrows():
         "location": leaves(as_list(r["locations"])),
         "partner_label": None,
         "contributors": as_list(r["contributors"]),
+        # [{"lang": "HI", "url": ...}, ...] from scripts/en/01_prepare_english.py
+        "translations": [{"lang": str(x["lang"]), "url": str(x["url"])}
+                         for x in (r["translations"] if "translations" in r and r["translations"] is not None else [])],
         # Ranker features compare these with the query's entities (same names as Hindi)
         "categories_norm": leaves(cats),
         "tags_norm": as_list(r["tags"]),
@@ -128,6 +131,8 @@ ensure_schema(engine)
 class EnglishSearchHit(SearchHit):
     # article | feature | ground_up_story | post | podcast
     post_type: Optional[str] = None
+    # The same piece in other languages: [{"lang": "HI" | "BN" | "MR" | "GU" | "KN", "url": ...}]
+    translations: List[Dict[str, str]] = []
 
 
 class EnglishSearchResponse(SearchResponse):
@@ -225,6 +230,7 @@ def run_search(req: SearchRequest, started: float, background_tasks: BackgroundT
             tags=it.get("tags") or [], location=it.get("location") or [], partner_label=None,
             contributors=it.get("contributors") or [], score=float(it["score"]), snippet=choose_snippet(it),
             post_type=it.get("post_type"),
+            translations=articles_meta.get(it["article_id"], {}).get("translations", []),
             features=it["features"] if req.explain else None,
             explanation=it["explanation"] if req.explain else None,
         )

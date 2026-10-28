@@ -7,7 +7,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -23,6 +23,9 @@ SUMMARY_COLS = ["general_info_summary", "general_info_podcast_summary", "_yoast_
 # /gu-in/, /bn/, /kn-in/). English search covers English only: its models don't read those
 # languages, so they would be keyword-only noise among English results.
 _TRANSLATION_URL_RE = re.compile(r"idronline\.org/[a-z]{2}(-[a-z]{2})?/", re.IGNORECASE)
+# Translations shown on English results, in this order (HI from the export's Hindi link; the rest
+# matched to their English original by the last part of the web address, which they share)
+TRANSLATION_ORDER = ["HI", "BN", "MR", "GU", "KN"]
 # " | IDR", " | Ground Up | India Development Review" and similar SEO suffixes
 _SEO_SUFFIX_RE = re.compile(r"(\s*\|\s*(IDR|India Development Review|Ground Up|Features?))+\s*$", re.IGNORECASE)
 
@@ -42,6 +45,33 @@ def clean_body(raw: Any) -> str:
 
 def split_pipe(v: Any) -> List[str]:
     return [x.strip() for x in text(v).split("|") if x.strip()]
+
+
+def url_slug(url: str) -> str:
+    return url.strip().rstrip("/").split("/")[-1].lower()
+
+
+def translation_links(english: pd.DataFrame, translations: pd.DataFrame, codes: pd.Series,
+                      hindi_published: Optional[Set[str]]) -> Tuple[List[List[Dict[str, str]]], Dict[str, Any]]:
+    """Per English item, its translations as [{"lang": "HI", "url": ...}, ...] in TRANSLATION_ORDER.
+    Hindi links are kept only when they point to a published Hindi article (when that list is known)."""
+    by_slug: Dict[str, Dict[str, str]] = {}
+    for url, code in zip(translations["url"], codes):
+        by_slug.setdefault(url_slug(url), {}).setdefault(code[:2].upper(), url)
+    norm = lambda u: u.strip().rstrip("/").lower()  # noqa: E731
+    links, broken_hindi = [], 0
+    for url, hindi in zip(english["url"], english["hindi_url"]):
+        langs = dict(by_slug.get(url_slug(url), {}))
+        if hindi:
+            if hindi_published is None or norm(hindi) in hindi_published:
+                langs["HI"] = hindi
+            else:
+                broken_hindi += 1
+        links.append([{"lang": k, "url": langs[k]} for k in TRANSLATION_ORDER if k in langs])
+    counts = {k: sum(any(x["lang"] == k for x in item) for item in links) for k in TRANSLATION_ORDER}
+    return links, {"items_with_any": sum(bool(x) for x in links), "by_language": counts,
+                   "hindi_links_not_published": broken_hindi,
+                   "translations_without_english": sum(s not in {url_slug(u) for u in english["url"]} for s in by_slug)}
 
 
 def post_type_of(path: str) -> str:
@@ -65,6 +95,8 @@ def main() -> None:
     ap.add_argument("--input", required=True, help="Folder with the five English WP All Export CSVs")
     ap.add_argument("--out", default="data/en/final/articles_canonical.parquet")
     ap.add_argument("--report", default="logs/en_prepare_report.json")
+    ap.add_argument("--hindi-articles", default="data/final/articles_canonical.parquet",
+                    help="Published Hindi articles; Hindi links pointing elsewhere are left out")
     args = ap.parse_args()
 
     rows: List[Dict[str, Any]] = []
@@ -104,7 +136,12 @@ def main() -> None:
     lang = out["url"].str.extract(r"idronline\.org/([a-z]{2}(?:-[a-z]{2})?)/", flags=re.IGNORECASE)[0]
     translated = out["url"].str.contains(_TRANSLATION_URL_RE)
     report["translations_dropped"] = lang[translated].value_counts().to_dict()
+    translations, codes = out[translated], lang[translated]
     out = out[~translated].reset_index(drop=True)
+    hindi_path = Path(args.hindi_articles)
+    hindi_published = ({u.strip().rstrip("/").lower() for u in pd.read_parquet(hindi_path, columns=["url"])["url"].dropna()}
+                       if hindi_path.exists() else None)
+    out["translations"], report["translation_links"] = translation_links(out, translations, codes, hindi_published)
     dup = out["id"].duplicated(keep="first")
     report["duplicate_ids_dropped"] = int(dup.sum())
     out = out[~dup].reset_index(drop=True)
