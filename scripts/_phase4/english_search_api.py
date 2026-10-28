@@ -33,10 +33,10 @@ from sentence_transformers import SentenceTransformer
 
 from scripts.embedding_models import prefixes
 from scripts.english import LocationIndex, as_list, leaves, primary_category, s
-from scripts.utils import classify_query, iso_to_epoch_seconds, MAX_QUERY_TOKENS
+from scripts.utils import classify_query, iso_to_epoch_seconds, query_tokens, MAX_QUERY_TOKENS
 from .api_common import (
     SearchRequest, SearchHit, SearchResponse, LabelRequest, QueryLabelRequest,
-    _cache_key, _cache_get, _cache_put, build_candidates, check_vector_size,
+    _cache_key, _cache_get, _cache_put, build_candidates, check_vector_size, broad_query_weights,
 )
 from .db import (
     get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
@@ -320,6 +320,9 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     weights = ranker_weights
     if entity.get("name_query"):
         weights = {**weights, "match_contributor": max(weights.get("match_contributor", 0.0), NAME_QUERY_CONTRIBUTOR_WEIGHT)}
+    content_words = [t for t in query_tokens(text) if t not in STOPWORDS]
+    weights, broad = broad_query_weights(weights, len(content_words), len(lex), LEXICAL_TOPK,
+                                         specific=bool(hard) or bool(entity.get("name_query")))
     ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=int(time.time()), weights=weights)
     timings["t_rank"] = time.perf_counter() - t
 
@@ -331,7 +334,7 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
             "lex_n": len(lex), "sem_article_n": len(sem_a), "sem_chunk_n": len(sem_c), "cand_n": len(candidates),
             "entity_matches": entity.get("matches", {}), "entity_hard": hard,
             "filter_by_final": filter_final, "post_types": post_types, "query_kind": kind,
-            "name_query": bool(entity.get("name_query")),
+            "name_query": bool(entity.get("name_query")), "broad_query": broad,
             **{k: round(v, 3) for k, v in timings.items()},
         },
     }

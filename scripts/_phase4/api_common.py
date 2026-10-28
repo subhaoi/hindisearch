@@ -184,6 +184,30 @@ def _cache_get(key: Tuple[str, str, str]) -> Optional[Dict[str, Any]]:
         return hit
 
 
+# A broad topic search ("adivasi", "gram panchayat"): a word or two, matched by more articles than
+# the keyword list holds, no author or place named. Dozens of articles fit, and readers expect
+# the recent ones first, so recency weighs much more; specific searches keep relevance first.
+# Used by the English API only. Measured on the test questions (2026-10-28), broad searches only,
+# recency weight 0.05 / 0.6 / 1.0: share of the top 5 from the last two years 24% / 38% / 43%,
+# median age 3.9 / 3.0 / 2.2 years, relevant articles in the top 3 2.58 / 2.56 / 2.44, first
+# result relevant 92.7% / 88.9% / 87.8%. 1.0 because editors read a 2019 piece first for
+# "adivasi" as a wrong result. Hindi was left as it is: its articles are mostly recent already
+# (54% of the top 5 from the last two years) and the boost cost relevance there. A single higher
+# weight for all searches cost relevance on specific searches instead ("menstrual health" put a
+# newer menopause piece above the exact match).
+BROAD_MAX_WORDS = 2
+BROAD_QUERY_RECENCY = 1.0
+
+
+def broad_query_weights(weights: Dict[str, float], content_words: int, keyword_hits: int,
+                        keyword_cap: int, specific: bool) -> Tuple[Dict[str, float], bool]:
+    """(ranker weights for this search, whether it counts as a broad topic search)."""
+    broad = not specific and 0 < content_words <= BROAD_MAX_WORDS and keyword_hits >= keyword_cap
+    if broad:
+        weights = {**weights, "recency": max(weights.get("recency", 0.0), BROAD_QUERY_RECENCY)}
+    return weights, broad
+
+
 def _cache_size() -> int:
     # Read when used, not at import: the APIs load .env after importing this module
     return int(os.environ.get("SEARCH_CACHE_SIZE", "128"))
