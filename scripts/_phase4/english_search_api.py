@@ -17,6 +17,7 @@ Typesense/Qdrant hosts and keys are shared with the Hindi API.
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,6 +138,14 @@ class EnglishSearchHit(SearchHit):
 
 class EnglishSearchResponse(SearchResponse):
     results: List[EnglishSearchHit]
+    # Set when the search is an author's full name: {"name", "count" (pieces on IDR), "url" (profile)}
+    author: Optional[Dict[str, Any]] = None
+
+
+def contributor_url(name: str) -> str:
+    """Profile page on idronline.org: /contributor/<name in lowercase, words joined by hyphens>/."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower().replace("'", "").replace(".", "")).strip("-")
+    return f"https://idronline.org/contributor/{slug}/"
 
 
 def typesense_search(q: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
@@ -248,7 +257,8 @@ def run_search(req: SearchRequest, started: float, background_tasks: BackgroundT
         background_tasks.add_task(log_candidates, qid, ranked)
 
     return EnglishSearchResponse(query_id=qid, mode="en", query_used=res["query_used"], query_semantic=res["query_semantic"],
-                                 total_results=total, total_pages=total_pages, page=page, per_page=per_page, results=hits)
+                                 total_results=total, total_pages=total_pages, page=page, per_page=per_page, results=hits,
+                                 author=res.get("author"))
 
 
 def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
@@ -285,6 +295,10 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
 
     entity = detect_entities(text, gazetteer) if text else {"matches": {}, "hard": {}, "confidence": {}}
     hard = entity.get("hard", {})
+    # One author named in full: the page can show who they are and link to their profile
+    named = hard.get("contributors_norm") or []
+    author = ({"name": named[0], "count": len(ids_with("contributors_norm", named)), "url": contributor_url(named[0])}
+              if len(named) == 1 else None)
     if entity.get("filter_by_auto"):
         filters.append(entity["filter_by_auto"])
     filter_final = " && ".join(f"({f})" for f in filters) if len(filters) > 1 else (filters[0] if filters else None)
@@ -334,6 +348,7 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
 
     return {
         "query_used": text or "*",
+        "author": author,
         "query_semantic": query_semantic,
         "ranked": ranked,
         "meta": {
