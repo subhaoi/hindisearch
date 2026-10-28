@@ -51,6 +51,7 @@ WORDING = {
         "nothing_prompt": "आप क्या ढूंढ रहे थे? (ज़रूरी नहीं)",
         "nothing_saved": "✓ सेव हो गया: इस खोज का कोई नतीजा काम का नहीं। धन्यवाद!",
         "by": "लेखक:",
+        "also_in": "इन भाषाओं में भी",
         "types": {},
     },
     "en": {
@@ -89,6 +90,7 @@ WORDING = {
         "nothing_prompt": "What were you looking for? (optional)",
         "nothing_saved": "✓ Saved: nothing useful for this search. Thank you!",
         "by": "By",
+        "also_in": "Also in",
         "types": {"article": "Article", "feature": "Feature", "ground_up_story": "Ground Up story",
                   "post": "Post", "podcast": "Podcast"},
     },
@@ -145,7 +147,8 @@ HTML = """
     .meta-top{ display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; font-size:14px; color: var(--muted); margin-bottom: 4px; }
     .date{ font-weight:700; color: var(--text); }
     .badge{ background:#f0f0f0; border-radius: 6px; padding: 1px 8px; font-size:13px; color:#333; }
-    .langs{ display:inline-flex; gap:5px; margin-left:auto; }
+    .langs{ display:inline-flex; align-items:center; gap:5px; margin-left:auto; }
+    .langs .also{ font-size:13px; color: var(--muted); margin-right: 3px; }
     .lang{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px;
       color:#fff; font-weight:800; font-size:11px; letter-spacing:.04em; text-decoration:none; }
     .lang:hover{ filter: brightness(1.15); }
@@ -226,7 +229,7 @@ HTML = """
     function langSquares(list){
       const items = (list || []).filter(x => LANGS[x.lang]);
       if(!items.length) return "";
-      return `<span class="langs">` + items.map(x =>
+      return `<span class="langs"><span class="also">${escapeHtml(T.also_in)}</span>` + items.map(x =>
         `<a class="lang" style="background:${LANGS[x.lang][1]}" href="${escapeHtml(x.url)}" target="_blank" rel="noreferrer" title="${LANGS[x.lang][0]}">${x.lang}</a>`
       ).join("") + `</span>`;
     }
