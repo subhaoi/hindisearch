@@ -36,6 +36,7 @@ WORDING = {
         "count": "{n} नतीजे",
         "sort_best": "सबसे सटीक",
         "sort_newest": "सबसे नया पहले",
+        "sort_oldest": "सबसे पुराना पहले",
         "useful": "👍 काम का है",
         "not_useful": "👎 काम का नहीं",
         "comment": "टिप्पणी जोड़ें (ज़रूरी नहीं)",
@@ -73,6 +74,7 @@ WORDING = {
         "count": "{n} results",
         "sort_best": "Best match",
         "sort_newest": "Newest first",
+        "sort_oldest": "Oldest first",
         "useful": "👍 Useful",
         "not_useful": "👎 Not useful",
         "comment": "Add a comment (optional)",
@@ -191,6 +193,7 @@ HTML = """
       <div class="sort">
         <button id="sortBest" class="active" onclick="setSort('best')"></button>
         <button id="sortNew" onclick="setSort('newest')"></button>
+        <button id="sortOld" onclick="setSort('oldest')"></button>
       </div>
     </div>
 
@@ -238,6 +241,7 @@ HTML = """
       el("examples").querySelectorAll(".chip").forEach(c => c.onclick = () => { el("q").value = c.textContent; doSearch(); });
       el("sortBest").textContent = T.sort_best;
       el("sortNew").textContent = T.sort_newest;
+      el("sortOld").textContent = T.sort_oldest;
       el("more").textContent = T.show_more;
       el("nothingBtn").textContent = T.nothing_useful;
       el("q").focus();
@@ -250,6 +254,7 @@ HTML = """
       sortMode = mode;
       el("sortBest").classList.toggle("active", mode === "best");
       el("sortNew").classList.toggle("active", mode === "newest");
+      el("sortOld").classList.toggle("active", mode === "oldest");
       render();
     }
 
@@ -257,6 +262,9 @@ HTML = """
       const arr = [...results];
       if(sortMode === "newest"){
         arr.sort((a,b) => (dateValue(b.date) || 0) - (dateValue(a.date) || 0));
+      }else if(sortMode === "oldest"){
+        // Undated results go last, not first
+        arr.sort((a,b) => (dateValue(a.date) || Infinity) - (dateValue(b.date) || Infinity));
       }
       return arr;
     }
