@@ -7,6 +7,9 @@ indexes, model and log database, all set by EN_* variables in .env:
   EN_QDRANT_COLLECTION_ARTICLES  idr_en_articles_vec_v1
   EN_QDRANT_COLLECTION_CHUNKS    idr_en_chunks_vec_v1
   EN_EMBED_MODEL                 the model the vectors were made with (scripts/en/03_embed_english.py)
+  EN_EMBED_BACKEND               torch (default) | onnx: int8 query encoder from
+                                 scripts/25_export_onnx_query_encoder.py, at EN_EMBED_ONNX_DIR /
+                                 EN_EMBED_ONNX_FILE (document vectors stay as they are)
   EN_DATABASE_URL                its own Postgres database, so the two sites' logs stay apart
   EN_RANKER_WEIGHTS              learned weights; missing -> ranker_v2 defaults
 
@@ -62,6 +65,9 @@ TS_COLLECTION = os.environ.get("EN_TYPESENSE_COLLECTION", "idr_en_articles_v1")
 QCOL_ART = os.environ.get("EN_QDRANT_COLLECTION_ARTICLES", "idr_en_articles_vec_v1")
 QCOL_CHK = os.environ.get("EN_QDRANT_COLLECTION_CHUNKS", "idr_en_chunks_vec_v1")
 MODEL_NAME = os.environ.get("EN_EMBED_MODEL", "")
+EMBED_BACKEND = os.environ.get("EN_EMBED_BACKEND", "torch").strip().lower()
+EMBED_ONNX_DIR = os.environ.get("EN_EMBED_ONNX_DIR", "models/e5-base-v2-en-idr-v1-onnx")
+EMBED_ONNX_FILE = os.environ.get("EN_EMBED_ONNX_FILE", "onnx/model_qint8_avx2.onnx")
 DATABASE_URL = os.environ.get("EN_DATABASE_URL", "")
 WEIGHTS_PATH = Path(os.environ.get("EN_RANKER_WEIGHTS", "data/en/phase_4/ranker_v2_weights.json"))
 if not MODEL_NAME or not DATABASE_URL:
@@ -128,7 +134,11 @@ ts = typesense.Client({
     "api_key": os.environ["TYPESENSE_API_KEY"], "connection_timeout_seconds": 10,
 })
 qd = QdrantClient(host=os.environ.get("QDRANT_HOST", "localhost"), port=int(os.environ.get("QDRANT_PORT", "6333")))
-model = SentenceTransformer(MODEL_NAME, trust_remote_code=_TRUST)
+# Prefixes still come from MODEL_NAME: the onnx copy is the same model, only faster on CPU
+if EMBED_BACKEND == "onnx":
+    model = SentenceTransformer(str(root / EMBED_ONNX_DIR), backend="onnx", model_kwargs={"file_name": EMBED_ONNX_FILE})
+else:
+    model = SentenceTransformer(MODEL_NAME, trust_remote_code=_TRUST)
 check_vector_size(qd, QCOL_CHK, model, MODEL_NAME)
 ranker_weights = load_weights(WEIGHTS_PATH)
 engine = get_engine(DATABASE_URL)
@@ -208,7 +218,7 @@ def choose_snippet(item: Dict[str, Any]) -> Optional[str]:
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "site": "en", "model": MODEL_NAME, "ranker_version": RANKER_VERSION,
+    return {"ok": True, "site": "en", "model": MODEL_NAME, "embed_backend": EMBED_BACKEND, "ranker_version": RANKER_VERSION,
             "retrieval_version": RETRIEVAL_VERSION}
 
 
