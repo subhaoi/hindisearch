@@ -1,0 +1,22 @@
+{
+ "note": "Site pages the English search links to when a search is about the site itself (scripts/_phase4/english_extras.py). A link shows when every word of the search is one of its words or a filler word, and at least one of its words is there: 'contact' and 'who do i write to if i want to publish a piece' match; 'contact tracing' does not. Results still show below. Words can be phrases ('job board'). Add a link here when the search log shows people looking for a page.",
+ "filler": ["idr", "india", "development", "review", "i", "me", "my", "we", "you", "your", "us", "a", "an", "the", "to", "do", "does", "how", "can", "where", "who", "what", "which", "when", "want", "would", "like", "if", "is", "are", "for", "at", "on", "in", "of", "with", "about", "please", "page", "details", "info", "information", "link", "form", "apply", "online", "website", "site", "piece", "pieces", "article", "articles", "new", "now", "get", "find"],
+ "links": [
+  {"title": "Contact IDR", "url": "https://idronline.org/contact/",
+   "words": ["contact", "contact us", "email", "e-mail", "phone", "address", "reach"]},
+  {"title": "Write for IDR", "url": "https://idronline.org/write-for-idr/",
+   "words": ["write", "writing", "publish", "publishing", "submit", "submission", "submissions", "pitch", "contribute", "guidelines", "op-ed", "oped"]},
+  {"title": "Work with IDR (jobs)", "url": "https://idronline.org/about/work-with-us/",
+   "words": ["jobs", "job", "job board", "career", "careers", "vacancy", "vacancies", "hiring", "internship", "internships", "work with us"]},
+  {"title": "Events and conferences", "url": "https://idronline.org/events-and-conferences/",
+   "words": ["event", "events", "conference", "conferences", "webinar", "webinars"]},
+  {"title": "Fellowships", "url": "https://idronline.org/fellowships/",
+   "words": ["fellowship", "fellowships"]},
+  {"title": "Leadership and development courses", "url": "https://idronline.org/leadership-and-development-courses/",
+   "words": ["course", "courses", "certificate", "certificates", "certification"]},
+  {"title": "Republishing guidelines", "url": "https://idronline.org/republishing-guidelines/",
+   "words": ["republish", "republishing", "reprint", "permission"]},
+  {"title": "Donate to IDR", "url": "https://idronline.org/donate/",
+   "words": ["donate", "donation", "donations"]}
+ ]
+}

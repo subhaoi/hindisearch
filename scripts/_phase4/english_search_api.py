@@ -44,6 +44,7 @@ from .db import (
     searches_since, errors_since, label_counts,
 )
 from .english_entities import STOPWORDS, Gazetteer, detect_entities, detect_post_type
+from .english_extras import QuickLinks, Speller
 from .ranker_v2 import ranker_v2, load_weights
 from . import usage_feed
 
@@ -113,6 +114,11 @@ gazetteer = Gazetteer(
     location_aliases=_locs.aliases,
 )
 
+# Spelling: the site's own words (titles, summaries, text) and author names; quick links: config
+speller = Speller((f"{r['title']} {r['summary']} {r['content']}" for _, r in articles_df.iterrows()),
+                  {a for m in articles_meta.values() for a in m["contributors"]}, STOPWORDS)
+quick_links = QuickLinks(root / "config" / "en_quick_links.json")
+
 QUERY_PREFIX, _, _TRUST = prefixes(MODEL_NAME)
 
 app = FastAPI(title="IDR English Search API")
@@ -140,6 +146,15 @@ class EnglishSearchResponse(SearchResponse):
     results: List[EnglishSearchHit]
     # Set when the search is an author's full name: {"name", "count" (pieces on IDR), "url" (profile)}
     author: Optional[Dict[str, Any]] = None
+    # Set when a misspelt search was corrected; the results are for this text
+    corrected_query: Optional[str] = None
+    # Site pages when the search is about the site itself ("contact", "write for idr"): [{title, url}]
+    quick_links: List[Dict[str, str]] = []
+
+
+class EnglishSearchRequest(SearchRequest):
+    # True: search exactly what was typed ("Search instead for ..." after a correction)
+    exact: bool = False
 
 
 def contributor_url(name: str) -> str:
@@ -198,7 +213,7 @@ def health() -> Dict[str, Any]:
 
 
 @app.post("/search", response_model=EnglishSearchResponse)
-def search(req: SearchRequest, background_tasks: BackgroundTasks) -> EnglishSearchResponse:
+def search(req: EnglishSearchRequest, background_tasks: BackgroundTasks) -> EnglishSearchResponse:
     started = time.perf_counter()
     try:
         return run_search(req, started, background_tasks)
@@ -209,7 +224,7 @@ def search(req: SearchRequest, background_tasks: BackgroundTasks) -> EnglishSear
         raise
 
 
-def run_search(req: SearchRequest, started: float, background_tasks: BackgroundTasks) -> EnglishSearchResponse:
+def run_search(req: EnglishSearchRequest, started: float, background_tasks: BackgroundTasks) -> EnglishSearchResponse:
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="Empty query")
     if req.ranker and req.ranker != RANKER_VERSION:
@@ -219,12 +234,15 @@ def run_search(req: SearchRequest, started: float, background_tasks: BackgroundT
         return EnglishSearchResponse(query_id=0, mode="junk", query_used="", query_semantic="", total_results=0,
                                      total_pages=1, page=1, per_page=per_page, results=[])
 
-    key = _cache_key(req.query, req.filter_by, RANKER_VERSION)
+    corrected = None if req.exact else speller.correct(req.query)
+    query = corrected or req.query
+    key = _cache_key(query, req.filter_by, RANKER_VERSION)
     res = _cache_get(key)
     cached = res is not None
     if res is None:
-        res = retrieve(req.query, req.filter_by)
+        res = retrieve(query, req.filter_by)
         _cache_put(key, res)
+    links = quick_links.match(req.query)
     ranked = res["ranked"]
 
     total = len(ranked)
@@ -252,13 +270,14 @@ def run_search(req: SearchRequest, started: float, background_tasks: BackgroundT
             engine=engine, query_raw=req.query, query_mode="en", query_used=res["query_used"],
             query_semantic=res["query_semantic"], filters={"filter_by": req.filter_by} if req.filter_by else None,
             ranker_version=RANKER_VERSION, retrieval_version=RETRIEVAL_VERSION,
-            meta={**res["meta"], "cached": cached, "took_s": round(time.perf_counter() - started, 2)},
+            meta={**res["meta"], "cached": cached, "took_s": round(time.perf_counter() - started, 2),
+                  "corrected_query": corrected, "exact": req.exact, "quick_links": [x["title"] for x in links]},
         )
         background_tasks.add_task(log_candidates, qid, ranked)
 
     return EnglishSearchResponse(query_id=qid, mode="en", query_used=res["query_used"], query_semantic=res["query_semantic"],
                                  total_results=total, total_pages=total_pages, page=page, per_page=per_page, results=hits,
-                                 author=res.get("author"))
+                                 author=res.get("author"), corrected_query=corrected, quick_links=links)
 
 
 def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:

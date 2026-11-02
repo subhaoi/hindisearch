@@ -51,6 +51,9 @@ WORDING = {
         "also_in": "इन भाषाओं में भी",
         "author_line": "लेखक · आईडीआर पर {n} लेख",
         "author_link": "प्रोफ़ाइल देखें →",
+        "corrected": "{c} के नतीजे दिखा रहे हैं।",
+        "search_instead": "इसके बजाय {q} खोजें",
+        "quick_title": "क्या आप यह ढूंढ रहे हैं?",
         "types": {}, "types_plural": {},
     },
     "en": {
@@ -88,6 +91,9 @@ WORDING = {
         "also_in": "Also in",
         "author_line": "Author · {n} pieces on IDR",
         "author_link": "See profile on IDR →",
+        "corrected": "Showing results for {c}.",
+        "search_instead": "Search instead for {q}",
+        "quick_title": "Looking for this?",
         "types": {"article": "Article", "feature": "Feature", "ground_up_story": "Ground Up story",
                   "post": "Post", "podcast": "Podcast"},
         "types_plural": {"article": "Articles", "ground_up_story": "Ground Up stories", "feature": "Features",
@@ -149,6 +155,11 @@ HTML = """
     .person .nm{ font-size: 19px; font-weight:800; } .person .ds{ color: var(--muted); font-size:14px; }
     .person .link{ margin-left:auto; border:2px solid #1d1d1d; border-radius:10px; padding: 7px 14px; font-weight:700; white-space:nowrap; font-size:15px; }
 
+    .fixed{ font-size: 15px; color: var(--muted); margin: -4px 0 12px; }
+    .fixed b{ color: var(--text); } .fixed a{ color: var(--teal); text-decoration: underline; cursor:pointer; }
+    .quick{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#f6f6f4; border-radius:12px; padding: 12px 16px; margin: 6px 0 12px; }
+    .quick .t{ color: var(--muted); font-size:15px; }
+    .quick a{ border:2px solid #1d1d1d; border-radius:10px; padding: 6px 14px; font-weight:700; font-size:15px; background:#fff; }
     .message{ border-top:1px solid var(--line); padding: 28px 0; text-align:center; color: var(--muted); }
 
     .card{ display:flex; gap:20px; padding: 18px 0; border-top: 1px solid var(--line); }
@@ -234,6 +245,8 @@ HTML = """
       </span>
     </div>
     <div class="chipwrap"><div class="chips" id="chips"></div></div>
+    <div class="fixed" id="fixed"></div>
+    <div id="quick"></div>
     <div id="person"></div>
     <div id="results"></div>
 
@@ -255,7 +268,7 @@ HTML = """
     const STOP = new Set(["the","a","an","and","or","of","in","on","for","to","with","by","is","are","what","how","why",
                           "के","की","का","में","और","से","को","पर","है"]);
 
-    let queryId = null, results = [], author = null;
+    let queryId = null, results = [], author = null, corrected = null, links = [];
     let sortMode = "best", typeFilter = null, visible = 10;
     let ratings = {};   // article id -> 1 / 0, for this search
     let wordRe = null;
@@ -439,6 +452,8 @@ HTML = """
       el("resline").style.display = "none";
       el("chips").innerHTML = "";
       el("person").innerHTML = "";
+      el("fixed").innerHTML = "";
+      el("quick").innerHTML = "";
       el("end").style.display = "none";
     }
 
@@ -466,35 +481,52 @@ HTML = """
 
     function showMore(){ visible += 10; render(); }
 
-    async function doSearch(){
+    // exact: search what was typed, without the spelling correction ("Search instead for ...")
+    async function doSearch(exact){
       const q = el("q").value.trim();
       if(!q) return;
       showMessage(T.searching);
       try{
         const res = await fetch("proxy_search", {
           method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({query: q, per_page: 50, explain: false})
+          body: JSON.stringify({query: q, per_page: 50, explain: false, exact: exact === true})
         });
         if(!res.ok) throw new Error("search failed");
         const data = await res.json();
         queryId = data.query_id;
         results = data.results || [];
         author = data.author || null;
+        corrected = data.corrected_query || null;
+        links = data.quick_links || [];
       }catch(e){
         showMessage(T.error);
         return;
       }
-      wordRe = buildWordRe(q);
+      wordRe = buildWordRe(corrected || q);
+      renderQuick();
       ratings = {};
       typeFilter = null;
       el("nothingStatus").textContent = "";
-      if(!results.length){ showMessage(T.no_results); return; }
+      if(!results.length){ showMessage(T.no_results); renderQuick(); return; }
       el("resline").style.display = "flex";
-      el("resFor").innerHTML = fmt(escapeHtml(T.results_for), "q", `<b>${escapeHtml(q)}</b>`);
+      el("resFor").innerHTML = fmt(escapeHtml(T.results_for), "q", `<b>${escapeHtml(corrected || q)}</b>`);
+      if(corrected){
+        el("fixed").innerHTML = fmt(escapeHtml(T.corrected), "c", `<b>${escapeHtml(corrected)}</b>`) + " " +
+          `<a id="instead">${fmt(escapeHtml(T.search_instead), "q", escapeHtml(q))}</a>`;
+        el("instead").onclick = () => doSearch(true);
+      }else{
+        el("fixed").innerHTML = "";
+      }
       el("end").style.display = "flex";
       renderChips();
       renderPerson();
       setSort("best");
+    }
+
+    // Site pages for searches about the site itself ("contact", "write for idr")
+    function renderQuick(){
+      el("quick").innerHTML = links.length ? `<div class="quick"><span class="t">${escapeHtml(T.quick_title)}</span>` +
+        links.map(x => `<a href="${escapeHtml(x.url)}" target="_blank" rel="noreferrer">${escapeHtml(x.title)} →</a>`).join("") + `</div>` : "";
     }
 
     async function markNone(){
@@ -526,6 +558,7 @@ class SearchReq(BaseModel):
     query: str
     per_page: int = 10
     explain: bool = False
+    exact: bool = False
 
 class LabelReq(BaseModel):
     query_id: int
