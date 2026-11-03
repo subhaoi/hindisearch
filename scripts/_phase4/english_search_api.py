@@ -412,8 +412,8 @@ def api_usage(since: float = 0, days: int = 30, x_idr_usage_token: Optional[str]
             "typesense_docs": safe(lambda: ts.collections[TS_COLLECTION].retrieve()["num_documents"]),
             "qdrant_articles": safe(lambda: qd.count(QCOL_ART, exact=True).count),
             "qdrant_chunks": safe(lambda: qd.count(QCOL_CHK, exact=True).count),
-            # The English weekly refresh and test set are not set up yet
-            "refresh": None,
+            # scripts/en/refresh_weekly_en.py; the English test set is not set up yet
+            "refresh": usage_feed.last_refresh(root, "refresh_en"),
             "eval": None,
             "labels": {**(safe(lambda: label_counts(engine, RANKER_VERSION)) or {}), "needed": usage_feed.MIN_LABELS},
             "ranker": RANKER_VERSION,

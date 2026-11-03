@@ -1,0 +1,56 @@
+{
+  "exports": [
+    {
+      "name": "articles",
+      "export_id": 33,
+      "trigger_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=33&action=trigger",
+      "processing_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=33&action=processing",
+      "file_url": "https://idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=33&action=get_data"
+    },
+    {
+      "name": "features",
+      "export_id": 40,
+      "trigger_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=40&action=trigger",
+      "processing_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=40&action=processing",
+      "file_url": "https://idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=40&action=get_data"
+    },
+    {
+      "name": "ground_up",
+      "export_id": 30,
+      "trigger_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=30&action=trigger",
+      "processing_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=30&action=processing",
+      "file_url": "https://idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=30&action=get_data"
+    },
+    {
+      "name": "posts",
+      "export_id": 29,
+      "trigger_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=29&action=trigger",
+      "processing_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=29&action=processing",
+      "file_url": "https://idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=29&action=get_data",
+      "every_weeks": 4
+    },
+    {
+      "name": "podcasts",
+      "export_id": 32,
+      "trigger_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=32&action=trigger",
+      "processing_url": "https://idronline.org/wp-load.php?export_key=EXPORT_KEY&export_id=32&action=processing",
+      "file_url": "https://idronline.org/wp-load.php?security_token=SECURITY_TOKEN&export_id=32&action=get_data"
+    }
+  ],
+  "poll_interval_seconds": 15,
+  "poll_timeout_minutes": 60,
+  "done_patterns": [
+    "complete"
+  ],
+  "min_rows_ratio": 0.9,
+  "hindi_wait_minutes": 240,
+  "api_base": "http://localhost:8001",
+  "restart_cmd": "sudo systemctl restart englishsearch-api",
+  "health_timeout_seconds": 600,
+  "smoke_queries": [
+    "climate change",
+    "Saba Kohli Dave"
+  ],
+  "keep_backups": 4,
+  "alert_webhook_url": ""
+}

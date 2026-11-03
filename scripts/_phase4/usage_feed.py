@@ -132,10 +132,10 @@ def top_queries(searches: List[Dict[str, Any]], since_ts: float) -> Dict[str, An
     }
 
 
-def last_refresh(root: Path) -> Optional[Dict[str, Any]]:
-    """Summary of logs/refresh/last_status.json from the weekly refresh."""
+def last_refresh(root: Path, folder: str = "refresh") -> Optional[Dict[str, Any]]:
+    """Summary of logs/<folder>/last_status.json from the weekly refresh (English: refresh_en)."""
     try:
-        s = json.loads((root / "logs" / "refresh" / "last_status.json").read_text(encoding="utf-8"))
+        s = json.loads((root / "logs" / folder / "last_status.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return {

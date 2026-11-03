@@ -478,6 +478,23 @@ sudo systemctl daemon-reload && sudo systemctl enable --now englishsearch-api en
 
 Both listen on 127.0.0.1 only; nginx exposes them (the test page with a password).
 
+Weekly refresh (`scripts/en/refresh_weekly_en.py`, cron line in `deploy/crontab.txt`, Friday
+18:30 UTC): triggers the five English exports, waits for them, runs `01`–`04` above (`04 --prune`)
+and restarts `englishsearch-api`, with the same safety steps as the Hindi refresh (validation,
+backup to `data/en/backups/`, restore on an offline failure, smoke test). It waits while the
+Hindi refresh runs. Exports live in `data/en/raw/exports/`; logs and status in
+`logs/refresh_en/` (the admin panel shows `last_status.json`). Posts get no new items (none
+since 2021), so `"every_weeks": 4` downloads them monthly; every week still rebuilds them from
+the saved copy, so new translations in the other exports keep getting linked. Config:
+`config/refresh_en.json` (git-ignored, the export links carry secret keys; copy
+`config/refresh_en.example.json`).
+
+```bash
+python scripts/en/refresh_weekly_en.py                # what cron runs
+python scripts/en/refresh_weekly_en.py --skip-fetch   # rebuild from the saved exports
+python scripts/en/refresh_weekly_en.py --force        # rebuild even if nothing changed
+```
+
 ---
 
 ## Admin panel feed

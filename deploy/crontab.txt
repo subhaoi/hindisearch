@@ -2,3 +2,8 @@
 # check with `timedatectl`). Install with `crontab -e` as the ubuntu user and paste the line.
 # The script takes its own lock, logs to logs/refresh/, and exits non-zero on failure.
 30 18 * * 6 cd /home/ubuntu/hindisearch && .venv/bin/python scripts/refresh_weekly.py >> logs/refresh_cron.log 2>&1
+
+# English site refresh: Saturday 00:00 IST = Friday 18:30 UTC. Its own night: Saturday has the
+# Hindi refresh, Sunday the image search update (16:30 UTC) on the same server. It also waits if
+# the Hindi refresh is still running. Logs to logs/refresh_en/.
+30 18 * * 5 cd /home/ubuntu/hindisearch && .venv/bin/python scripts/en/refresh_weekly_en.py >> logs/refresh_en_cron.log 2>&1
