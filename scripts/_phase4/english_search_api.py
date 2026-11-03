@@ -12,6 +12,8 @@ indexes, model and log database, all set by EN_* variables in .env:
                                  EN_EMBED_ONNX_FILE (document vectors stay as they are)
   EN_DATABASE_URL                its own Postgres database, so the two sites' logs stay apart
   EN_RANKER_WEIGHTS              learned weights; missing -> ranker_v2 defaults
+  EN_CORS_ORIGINS                sites whose pages may call the API from the browser (comma-separated;
+                                 default https://idronline.org,https://www.idronline.org)
 
 Typesense/Qdrant hosts and keys are shared with the Hindi API.
 
@@ -28,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 import pandas as pd
 import typesense
@@ -128,6 +131,12 @@ quick_links = QuickLinks(root / "config" / "en_quick_links.json")
 QUERY_PREFIX, _, _TRUST = prefixes(MODEL_NAME)
 
 app = FastAPI(title="IDR English Search API")
+# The site's pages may call the API from the browser; other sites can't (they can still call it
+# from a server, as before)
+CORS_ORIGINS = [o.strip() for o in os.environ.get("EN_CORS_ORIGINS", "https://idronline.org,https://www.idronline.org").split(",")
+                if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["GET", "POST"],
+                   allow_headers=["Content-Type"], max_age=86400)
 ts = typesense.Client({
     "nodes": [{"host": os.environ.get("TYPESENSE_HOST", "localhost"), "port": os.environ.get("TYPESENSE_PORT", "8108"),
                "protocol": os.environ.get("TYPESENSE_PROTOCOL", "http")}],
