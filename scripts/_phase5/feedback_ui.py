@@ -94,10 +94,11 @@ WORDING = {
         "corrected": "Showing results for {c}.",
         "search_instead": "Search instead for {q}",
         "quick_title": "Looking for this?",
+        # Posts show as articles: to a reader they are the same (see kind() in the page script)
         "types": {"article": "Article", "feature": "Feature", "ground_up_story": "Ground Up story",
-                  "post": "Post", "podcast": "Podcast"},
+                  "podcast": "Podcast"},
         "types_plural": {"article": "Articles", "ground_up_story": "Ground Up stories", "feature": "Features",
-                         "post": "Posts", "podcast": "Podcasts"},
+                         "podcast": "Podcasts"},
     },
 }
 T = WORDING.get(SITE, WORDING["hi"])
@@ -262,7 +263,9 @@ HTML = """
     // The same piece in other languages (English site): colour and name in its own script
     const LANGS = {HI: ["हिंदी", "#B45309"], BN: ["বাংলা", "#15803D"], MR: ["मराठी", "#7E22CE"],
                    GU: ["ગુજરાતી", "#1D4ED8"], KN: ["ಕನ್ನಡ", "#BE185D"]};
-    const TYPE_ORDER = ["article", "ground_up_story", "feature", "post", "podcast"];
+    const TYPE_ORDER = ["article", "ground_up_story", "feature", "podcast"];
+    // A post is an article to a reader: one label, one chip
+    function kind(hit){ return hit.post_type === "post" ? "article" : hit.post_type; }
     // Newest / Oldest reorder only the strongest matches; weak matches never jump to the top by date
     const STRONG = 30;
     const STOP = new Set(["the","a","an","and","or","of","in","on","for","to","with","by","is","are","what","how","why",
@@ -360,7 +363,7 @@ HTML = """
     }
 
     function ordered(){
-      const base = typeFilter ? results.filter(h => h.post_type === typeFilter) : results.slice();
+      const base = typeFilter ? results.filter(h => kind(h) === typeFilter) : results.slice();
       if(sortMode === "best") return base;
       const strong = base.slice(0, STRONG), rest = base.slice(STRONG);
       const sign = sortMode === "newest" ? -1 : 1;
@@ -374,7 +377,7 @@ HTML = """
     }
 
     function renderChips(){
-      const present = TYPE_ORDER.filter(t => results.some(h => h.post_type === t) && T.types_plural[t]);
+      const present = TYPE_ORDER.filter(t => results.some(h => kind(h) === t) && T.types_plural[t]);
       if(present.length < 2){ el("chips").innerHTML = ""; return; }
       el("chips").innerHTML = [[null, T.all]].concat(present.map(t => [t, T.types_plural[t]]))
         .map(([t, label]) => `<button type="button" class="${typeFilter === t ? "on" : ""}" data-t="${t || ""}">${escapeHtml(label)}</button>`).join("");
@@ -400,7 +403,7 @@ HTML = """
     function card(hit){
       const div = document.createElement("div");
       div.className = "card" + (hit.id in ratings ? " r" + ratings[hit.id] : "");
-      const type = T.types[hit.post_type] || "";
+      const type = T.types[kind(hit)] || "";
       const authors = (hit.contributors || []).slice(0, 3).map(a => `<span class="who">${escapeHtml(a)}</span>`).join(", ");
       const ex = excerpt(hit);
       div.innerHTML = `
