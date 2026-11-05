@@ -195,8 +195,8 @@ HTML = """
     mark{ background: #fff3c4; color: inherit; font-weight:700; padding: 0 1px; }
     .ex{ font-size: 14px; color: var(--muted); margin: 0 0 7px; padding-left: 10px; border-left: 3px solid #e2e2e2; }
     .foot{ display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; }
-    .by{ font-size: 14px; color: var(--muted); flex:1; min-width: 180px; } .by .who{ color: var(--teal); font-weight:700; } a.who:hover, .meta a:hover{ text-decoration: underline; }
-    .meta a{ color: inherit; text-decoration: none; }
+    .by{ font-size: 14px; color: var(--muted); flex:1; min-width: 180px; } .by .who{ color: var(--teal); font-weight:700; } a.who:hover, .meta a.cat:hover{ text-decoration: underline; }
+    .meta a.cat{ color: inherit; text-decoration: none; }
     .rate{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .v{ border:1.5px solid #d6d6d6; border-radius: 999px; padding: 4px 12px; font-size:14px; font-weight:600; background:#fff; cursor:pointer; white-space:nowrap; }
     .v.yes.on, .v.yes:hover{ border-color: var(--green); background: var(--green-soft); color: var(--green); }
@@ -436,7 +436,7 @@ HTML = """
         ? `<a class="who" href="${escapeHtml(a.url)}" target="_blank" rel="noreferrer">${escapeHtml(a.name)}</a>`
         : `<span class="who">${escapeHtml(a.name)}</span>`).join(", ");
       const cat = hit.primary_category && hit.primary_category_url
-        ? `<a href="${escapeHtml(hit.primary_category_url)}" target="_blank" rel="noreferrer">${escapeHtml(hit.primary_category)}</a>`
+        ? `<a class="cat" href="${escapeHtml(hit.primary_category_url)}" target="_blank" rel="noreferrer">${escapeHtml(hit.primary_category)}</a>`
         : escapeHtml(hit.primary_category || "");
       const ex = excerpt(hit);
       div.innerHTML = `
