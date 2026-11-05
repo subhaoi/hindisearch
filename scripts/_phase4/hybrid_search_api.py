@@ -435,6 +435,8 @@ def typesense_search(canon: Dict[str, Any], filter_by: Optional[str]) -> List[Di
         p: Dict[str, Any] = {
             "collection": TS_COLLECTION, "q": q, "query_by": fields, "query_by_weights": w,
             "per_page": LEXICAL_TOPK, "page": 1, "num_typos": t,
+            # Only the id is read below; full documents were ~5.5 MB per search pass
+            "include_fields": "id",
         }
         if filter_by:
             p["filter_by"] = filter_by
