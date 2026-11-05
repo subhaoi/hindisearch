@@ -127,6 +127,36 @@ def detect_entities(query: str, gaz: Gazetteer, max_per_field: int = 3) -> Dict[
     }
 
 
+# How people ask rather than what they ask about: "articles about tamil nadu", "show me ...",
+# "what has idr published on ...". Left in, "articles" becomes the whole meaning of the search
+# once the place turns into a filter, and "about" matches every "Read more about ...".
+_REQUEST_PHRASES = [
+    re.compile(r"^what\s+(?:has|have|did|does)\s+idr\s+(?:published|publish|written|write|covered|cover|said)"
+               r"(?:\s+(?:on|about|by|regarding))?\s+", re.IGNORECASE),
+    re.compile(r"^(?:please\s+)?(?:show\s+me|find\s+me|search\s+for|looking\s+for|i\s+(?:want|need)\s+to\s+"
+               r"(?:read|find|see)(?:\s+about)?)\s+", re.IGNORECASE),
+    re.compile(r"^(?:(?:all|any|some|the|idr'?s?)\s+)*(?:articles?|stories|pieces?|posts?|content|anything|something|"
+               r"writings?|reads?|resources?)\s+(?:about|on|regarding|related\s+to|relating\s+to|around|covering|"
+               r"of|in|from|by|for|mentioning)\s+", re.IGNORECASE),
+]
+
+
+def strip_request(query: str) -> str:
+    """"articles about tamil nadu" -> "tamil nadu"; unchanged when nothing would be left."""
+    q = " ".join(query.split())
+    for rx in _REQUEST_PHRASES:
+        rest = rx.sub("", q, count=1)
+        if rest.strip():
+            q = rest
+    return q
+
+
+def keyword_text(text: str) -> str:
+    """The search without STOPWORDS for the keyword index ("about" is in half the site); as is if only those."""
+    words = [w for w in text.split() if w.lower().strip(".,;:!?\"'()") not in STOPWORDS]
+    return " ".join(words) if words else text
+
+
 _POST_TYPE_WORDS = [
     (re.compile(r"\bpodcasts?\b", re.IGNORECASE), "podcast"),
     (re.compile(r"\bground[\s-]?up( stor(y|ies))?\b", re.IGNORECASE), "ground_up_story"),

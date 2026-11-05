@@ -51,7 +51,7 @@ from .db import (
     get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
     searches_since, errors_since, label_counts,
 )
-from .english_entities import STOPWORDS, Gazetteer, detect_entities, detect_post_type
+from .english_entities import STOPWORDS, Gazetteer, detect_entities, detect_post_type, keyword_text, strip_request
 from .english_extras import QuickLinks, Speller
 from .ranker_v2 import ranker_v2, load_weights
 from . import usage_feed
@@ -316,7 +316,7 @@ def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
 def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     """Understand the query, retrieve from Typesense and Qdrant, rank. Cached per query."""
     kind, year = classify_query(query)
-    text = " ".join(query.split()[:MAX_QUERY_TOKENS])
+    text = strip_request(" ".join(query.split()[:MAX_QUERY_TOKENS]))
     filters: List[str] = [filter_by] if filter_by else []
     allowed: Optional[set] = None
     post_types: List[str] = []
@@ -357,7 +357,7 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
 
     timings: Dict[str, float] = {}
     t = time.perf_counter()
-    lex = typesense_search(text or "*", filter_final)
+    lex = typesense_search(keyword_text(text) if text else "*", filter_final)
     timings["t_typesense"] = time.perf_counter() - t
     query_semantic, sem_a, sem_c = "", [], []
     if text:

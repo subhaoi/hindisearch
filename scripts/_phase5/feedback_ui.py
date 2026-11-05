@@ -272,6 +272,7 @@ HTML = """
     // Newest / Oldest reorder only the strongest matches; weak matches never jump to the top by date
     const STRONG = 30;
     const STOP = new Set(["the","a","an","and","or","of","in","on","for","to","with","by","is","are","what","how","why",
+                          "about","from","at","as","into","its","who","does","do","it","be",
                           "के","की","का","में","और","से","को","पर","है"]);
 
     let queryId = null, results = [], author = null, corrected = null, links = [];
