@@ -184,7 +184,8 @@ HTML = """
     mark{ background: #fff3c4; color: inherit; font-weight:700; padding: 0 1px; }
     .ex{ font-size: 14px; color: var(--muted); margin: 0 0 7px; padding-left: 10px; border-left: 3px solid #e2e2e2; }
     .foot{ display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; }
-    .by{ font-size: 14px; color: var(--muted); flex:1; min-width: 180px; } .by .who{ color: var(--teal); font-weight:700; }
+    .by{ font-size: 14px; color: var(--muted); flex:1; min-width: 180px; } .by .who{ color: var(--teal); font-weight:700; } a.who:hover, .meta a:hover{ text-decoration: underline; }
+    .meta a{ color: inherit; text-decoration: none; }
     .rate{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .v{ border:1.5px solid #d6d6d6; border-radius: 999px; padding: 4px 12px; font-size:14px; font-weight:600; background:#fff; cursor:pointer; white-space:nowrap; }
     .v.yes.on, .v.yes:hover{ border-color: var(--green); background: var(--green-soft); color: var(--green); }
@@ -406,7 +407,15 @@ HTML = """
       const div = document.createElement("div");
       div.className = "card" + (hit.id in ratings ? " r" + ratings[hit.id] : "");
       const type = T.types[kind(hit)] || "";
-      const authors = (hit.contributors || []).slice(0, 3).map(a => `<span class="who">${escapeHtml(a)}</span>`).join(", ");
+      // English results carry profile and category pages (contributor_links, primary_category_url)
+      const people = hit.contributor_links && hit.contributor_links.length ? hit.contributor_links
+        : (hit.contributors || []).map(a => ({name: a}));
+      const authors = people.slice(0, 3).map(a => a.url
+        ? `<a class="who" href="${escapeHtml(a.url)}" target="_blank" rel="noreferrer">${escapeHtml(a.name)}</a>`
+        : `<span class="who">${escapeHtml(a.name)}</span>`).join(", ");
+      const cat = hit.primary_category && hit.primary_category_url
+        ? `<a href="${escapeHtml(hit.primary_category_url)}" target="_blank" rel="noreferrer">${escapeHtml(hit.primary_category)}</a>`
+        : escapeHtml(hit.primary_category || "");
       const ex = excerpt(hit);
       div.innerHTML = `
         ${hit.image_url ? `<div class="thumb"><img src="${escapeHtml(hit.image_url)}" alt="" loading="lazy"></div>` : ``}
@@ -414,7 +423,7 @@ HTML = """
           <div class="meta">
             ${niceDate(hit.date) ? `<span class="date">${escapeHtml(niceDate(hit.date))}</span>` : ``}
             ${type ? `<span class="badge">${escapeHtml(type)}</span>` : ``}
-            ${hit.primary_category ? `<span>${escapeHtml(hit.primary_category)}</span>` : ``}
+            ${cat ? `<span>${cat}</span>` : ``}
             ${langSquares(hit.translations)}
           </div>
           <div class="title">${hit.url ? `<a href="${escapeHtml(hit.url)}" target="_blank" rel="noreferrer">${escapeHtml(hit.title)}</a>` : escapeHtml(hit.title)}</div>

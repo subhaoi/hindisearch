@@ -39,7 +39,9 @@ from qdrant_client.http import models as qm
 from sentence_transformers import SentenceTransformer
 
 from scripts.embedding_models import prefixes
-from scripts.english import LocationIndex, as_list, leaves, primary_category, s
+from scripts.english import (
+    LocationIndex, as_list, category_url, contributor_url, leaf, leaves, primary_category_path, s,
+)
 from scripts.utils import classify_query, iso_to_epoch_seconds, query_tokens, MAX_QUERY_TOKENS
 from .api_common import (
     SearchRequest, SearchHit, SearchResponse, LabelRequest, QueryLabelRequest,
@@ -91,6 +93,7 @@ articles_meta: Dict[str, Dict[str, Any]] = {}
 for _, r in articles_df.iterrows():
     cats = as_list(r["categories"])
     aid = str(r["id"])
+    primary = primary_category_path(cats, r["url"])
     articles_meta[aid] = {
         "id": aid,
         "url": s(r["url"]) or None,
@@ -100,7 +103,8 @@ for _, r in articles_df.iterrows():
         "published_ts": iso_to_epoch_seconds(r["published_date"]),
         "image_url": s(r["image_url"]) or None,
         "post_type": s(r["post_type"]) or None,
-        "primary_category": primary_category(cats),
+        "primary_category": leaf(primary) if primary else None,
+        "primary_category_url": category_url(primary),
         "categories": leaves(cats),
         "tags": as_list(r["tags"]),
         "location": leaves(as_list(r["locations"])),
@@ -159,6 +163,10 @@ class EnglishSearchHit(SearchHit):
     post_type: Optional[str] = None
     # The same piece in other languages: [{"lang": "HI" | "BN" | "MR" | "GU" | "KN", "url": ...}]
     translations: List[Dict[str, str]] = []
+    # Category page on idronline.org (/sectors/rights/, /themes/gender/, /humour/ ...)
+    primary_category_url: Optional[str] = None
+    # Each contributor with their profile page: [{"name", "url"}], in the order of `contributors`
+    contributor_links: List[Dict[str, str]] = []
 
 
 class EnglishSearchResponse(SearchResponse):
@@ -174,12 +182,6 @@ class EnglishSearchResponse(SearchResponse):
 class EnglishSearchRequest(SearchRequest):
     # True: search exactly what was typed ("Search instead for ..." after a correction)
     exact: bool = False
-
-
-def contributor_url(name: str) -> str:
-    """Profile page on idronline.org: /contributor/<name in lowercase, words joined by hyphens>/."""
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower().replace("'", "").replace(".", "")).strip("-")
-    return f"https://idronline.org/contributor/{slug}/"
 
 
 def typesense_search(q: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
@@ -277,6 +279,8 @@ def run_search(req: EnglishSearchRequest, started: float, background_tasks: Back
             contributors=it.get("contributors") or [], score=float(it["score"]), snippet=choose_snippet(it),
             post_type=it.get("post_type"),
             translations=articles_meta.get(it["article_id"], {}).get("translations", []),
+            primary_category_url=articles_meta.get(it["article_id"], {}).get("primary_category_url"),
+            contributor_links=[{"name": n, "url": contributor_url(n)} for n in it.get("contributors") or []],
             features=it["features"] if req.explain else None,
             explanation=it["explanation"] if req.explain else None,
         )

@@ -55,7 +55,7 @@ def ts_documents(articles: pd.DataFrame) -> List[Dict[str, Any]]:
         docs.append({
             "id": str(r["id"]), "title": s(r["title"]), "seo_title": s(r["seo_title"]),
             "summary": s(r["summary"]), "content": s(r["content"]), "post_type": s(r["post_type"]),
-            "categories": leaves(cats), "primary_category": primary_category(cats),
+            "categories": leaves(cats), "primary_category": primary_category(cats, r["url"]),
             "tags": as_list(r["tags"]), "locations": leaves(as_list(r["locations"])),
             "locations_all": locs.for_article(r), "contributors": as_list(r["contributors"]),
             "podcast_series": as_list(r["podcast_series"]),

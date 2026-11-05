@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -46,10 +47,52 @@ def leaves(values: Iterable[str]) -> List[str]:
     return list(dict.fromkeys(leaf(v) for v in values if leaf(v)))
 
 
-def primary_category(categories: List[str]) -> Optional[str]:
-    """The first sector/theme ("Sectors>Livelihoods"); channel labels like "Instagram" only as a fallback."""
+# Category pages on idronline.org: /<parent>/<slug>/ ("Sectors>Rights" -> /sectors/rights/), or /<slug>/
+# for a top-level one ("Humour" -> /humour/). Channel and admin labels have no page worth linking.
+CATEGORY_NO_PAGE = {"Instagram", "Uncategorized", "IDR Select", "Commissioned content"}
+# Where the site's slug isn't the name made lowercase and hyphenated
+CATEGORY_SLUGS = {"Health & Well-being": "health", "Fundraising & Communications": "fundraising-and-communications"}
+
+
+def category_slug(name: str) -> str:
+    n = leaf(name)
+    return CATEGORY_SLUGS.get(n) or re.sub(r"[^a-z0-9]+", "-", n.lower().replace("'", "").replace("&", "")).strip("-")
+
+
+def category_url(category: str) -> Optional[str]:
+    """Page for a category path as in the exports ("Sectors>Rights"); None when it has none."""
+    if not category or leaf(category) in CATEGORY_NO_PAGE:
+        return None
+    parent = category.split(">")[0].strip() if ">" in category else ""
+    return "https://idronline.org/" + (f"{category_slug(parent)}/" if parent else "") + f"{category_slug(category)}/"
+
+
+def contributor_url(name: str) -> str:
+    """
+    Profile page on idronline.org, slug made the way WordPress makes it: accents dropped (Drèze ->
+    dreze), apostrophes removed (D’Souza -> dsouza), everything else a hyphen (J.V. -> j-v).
+    """
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", re.sub(r"['’‘]", "", plain)).strip("-")
+    return f"https://idronline.org/contributor/{slug}/"
+
+
+def primary_category_path(categories: List[str], url: Any = None) -> Optional[str]:
+    """
+    The site's own primary category, read from the address (/article/<slug>/..., /features/<slug>/...);
+    otherwise the first sector/theme ("Sectors>Livelihoods"), channel labels like "Instagram" last.
+    """
+    m = re.match(r"https?://[^/]+/(?:article|features)/([^/]+)/[^/]+", s(url))
+    if m:
+        for c in categories:
+            if category_slug(c) == m.group(1):
+                return c
     topical = [c for c in categories if c.split(">")[0] in ("Sectors", "Themes")]
-    pick = (topical or categories or [None])[0]
+    return (topical or categories or [None])[0]
+
+
+def primary_category(categories: List[str], url: Any = None) -> Optional[str]:
+    pick = primary_category_path(categories, url)
     return leaf(pick) if pick else None
 
 
