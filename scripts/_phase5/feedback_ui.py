@@ -63,6 +63,8 @@ WORDING = {
         "banner_title": "You're testing IDR's new search.",
         "banner_hint": "Rate each result with 👍 or 👎. That's all; it saves as you click.",
         "brand_sub": "Search preview",
+        # The site's own logo (the Hindi page keeps the text mark)
+        "logo_url": "https://idronline.org/wp-content/uploads/2021/06/cropped-idr-logo-without-tagline-sm.png",
         "placeholder": "For example: water crisis in Rajasthan",
         "search": "Search",
         "examples_label": "Try:",
@@ -131,6 +133,8 @@ HTML = """
     .head{ display:flex; align-items:baseline; gap:14px; padding: 18px 0 14px; border-bottom: 2px solid #111; }
     .logo{ font-weight:800; font-size:44px; line-height:1; letter-spacing:-2px; position:relative; }
     .logo:before{ content:""; position:absolute; left:2px; top:1px; width:8px; height:8px; background:var(--red); }
+    .logo.img:before{ display:none; } .logo img{ display:block; height:44px; width:auto; }
+    .head:has(.logo.img){ align-items:flex-end; }
     .head .sub{ font-size: 14px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color: var(--muted); }
 
     .searchbox{ margin: 26px 0 8px; display:flex; gap:10px; }
@@ -204,7 +208,7 @@ HTML = """
     @media (max-width: 640px){
       .wrap, .banner .in{ padding-left:16px; padding-right:16px; }
       .banner .hint{ display:none; }
-      .logo{ font-size: 36px; } .head .sub{ font-size: 12px; }
+      .logo{ font-size: 36px; } .logo img{ height: 36px; } .head .sub{ font-size: 12px; }
       .searchbox{ margin: 16px 0 8px; } .field{ height: 50px; } .field input{ font-size: 17px; }
       .go{ padding: 0 14px; font-size: 15px; }
       .seg button{ padding: 6px 10px; font-size: 13px; }
@@ -332,6 +336,11 @@ HTML = """
       el("bannerTitle").textContent = T.banner_title;
       el("bannerHint").textContent = T.banner_hint;
       el("brandSub").textContent = T.brand_sub;
+      if(T.logo_url){
+        const logo = document.querySelector(".logo");
+        logo.classList.add("img");
+        logo.innerHTML = `<img src="${escapeHtml(T.logo_url)}" alt="IDR">`;
+      }
       el("q").placeholder = T.placeholder;
       el("searchBtn").textContent = T.search;
       el("tries").innerHTML = `<span>${escapeHtml(T.examples_label)}</span>` +
