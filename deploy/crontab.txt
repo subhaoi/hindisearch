@@ -7,3 +7,8 @@
 # Hindi refresh, Sunday the image search update (16:30 UTC) on the same server. It also waits if
 # the Hindi refresh is still running. Logs to logs/refresh_en/.
 30 18 * * 5 cd /home/ubuntu/hindisearch && .venv/bin/python scripts/en/refresh_weekly_en.py >> logs/refresh_en_cron.log 2>&1
+
+# Health check with Slack alerts (script and SLACK_WEBHOOK_URL come from Image Search: its
+# deploy/idr_healthcheck.py and ~/idr-tools.env). The search APIs are watched by their /health;
+# a search API that stops answering (nginx 502) posts once to Slack, and again when it is back.
+*/30 * * * * set -a; . $HOME/idr-tools.env; set +a; python3 $HOME/idr-image-search/deploy/idr_healthcheck.py Translate=https://tools.idronline.org/translate/login Audio=https://tools.idronline.org/audio/login "Email Collector=https://tools.idronline.org/emails/login" "Image Search=https://tools.idronline.org/image-search/login" "Hindi Search=https://api.idronline.org/health" "English Search=https://api.idronline.org/en/health" >> $HOME/idr-health.log 2>&1
