@@ -95,6 +95,7 @@ WORDING = {
         "author_link": "See profile on IDR →",
         "corrected": "Showing results for {c}.",
         "search_instead": "Search instead for {q}",
+        "dropped": "No {what} matched this search, so here is everything that did.",
         "quick_title": "Looking for this?",
         # Posts show as articles: to a reader they are the same (see kind() in the page script)
         "types": {"article": "Article", "feature": "Feature", "ground_up_story": "Ground Up story",
@@ -275,7 +276,7 @@ HTML = """
                           "about","from","at","as","into","its","who","does","do","it","be",
                           "के","की","का","में","और","से","को","पर","है"]);
 
-    let queryId = null, results = [], author = null, corrected = null, links = [];
+    let queryId = null, results = [], author = null, corrected = null, links = [], dropped = [];
     let sortMode = "best", typeFilter = null, visible = 10;
     let ratings = {};   // article id -> 1 / 0, for this search
     let wordRe = null;
@@ -513,6 +514,7 @@ HTML = """
         author = data.author || null;
         corrected = data.corrected_query || null;
         links = data.quick_links || [];
+        dropped = data.dropped_filters || [];
       }catch(e){
         showMessage(T.error);
         return;
@@ -529,6 +531,10 @@ HTML = """
         el("fixed").innerHTML = fmt(escapeHtml(T.corrected), "c", `<b>${escapeHtml(corrected)}</b>`) + " " +
           `<a id="instead">${fmt(escapeHtml(T.search_instead), "q", escapeHtml(q))}</a>`;
         el("instead").onclick = () => doSearch(true);
+      }else if(dropped.length && T.dropped){
+        // "rachita vora podcast": she has no podcasts, so the API showed all her pieces
+        const what = dropped.map(d => T.types_plural[d] ? T.types_plural[d].toLowerCase() : d).join(", ");
+        el("fixed").textContent = fmt(T.dropped, "what", what);
       }else{
         el("fixed").innerHTML = "";
       }

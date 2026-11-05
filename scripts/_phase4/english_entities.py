@@ -7,10 +7,11 @@ they are the ranker's feature names; the values are the English metadata as writ
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
-from scripts.utils import query_tokens
+from scripts.utils import query_tokens as _query_tokens
 
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is", "it", "of",
@@ -31,6 +32,18 @@ BROAD_SHARE = 0.20
 # common in headlines/summaries (a surname like "Rice" or "Hope" is also an ordinary word)
 COMMON_WORD_SHARE = 0.01
 
+# Bylines that are IDR itself: not a person to filter on or show a card for
+HOUSE_NAMES = {"India Development Review", "IDR"}
+
+
+def unaccent(text: str) -> str:
+    """"Drèze" -> "Dreze", so a name typed without accents still matches."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c))
+
+
+def query_tokens(text: str) -> List[str]:
+    return _query_tokens(unaccent(text))
+
 
 class Gazetteer:
     def __init__(self, articles_meta: Dict[str, Dict[str, Any]], headline_text: Dict[str, str],
@@ -41,6 +54,8 @@ class Gazetteer:
             counts = Counter(v for m in articles_meta.values() for v in (m.get(field) or []))
             vals = []
             for v, dc in counts.most_common():
+                if field == "contributors" and v in HOUSE_NAMES:
+                    continue
                 toks = tuple(query_tokens(v))
                 if not toks or all(t in STOPWORDS for t in toks) or (len(toks) == 1 and len(toks[0]) < 3):
                     continue
@@ -141,6 +156,50 @@ _REQUEST_PHRASES = [
 ]
 
 
+# What a search can be narrowed to besides the content type: a series or format by its category
+# ("Features>IDR Interviews" -> "IDR Interviews") or podcast series ("On the Contrary>Season 1").
+# Humour is one too: asked for, it is what the person wants; otherwise it is ranked lower.
+SERIES = [
+    (re.compile(r"\bidr\s+interviews?\b|\binterviews?\s+with\b|\binterviews?\s*$", re.IGNORECASE), "IDR Interviews"),
+    (re.compile(r"\bidr\s+explains?\b|\bexplainers?\b", re.IGNORECASE), "IDR Explains"),
+    (re.compile(r"\bphoto\s*-?\s*(?:essays?|stor(?:y|ies))\b", re.IGNORECASE), "Photo Essays"),
+    (re.compile(r"\ba\s+day\s+in\s+the\s+life(?:\s+of)?\b", re.IGNORECASE), "A day in the life of"),
+    (re.compile(r"\bfailure\s+files\b", re.IGNORECASE), "Failure Files"),
+    (re.compile(r"\bon\s+the\s+contrary\b", re.IGNORECASE), "On the Contrary"),
+    (re.compile(r"\bwell-?\s?being\s+series\b", re.IGNORECASE), "The Well-being Series"),
+    (re.compile(r"\b(?:humou?r|humorous|funny|memes?|cartoons?|comics?|satire|jokes?)\b", re.IGNORECASE), "Humour"),
+]
+
+# "latest articles on climate": newest first, searched as "articles on climate"
+_RECENT_RE = re.compile(r"\b(?:latest|recent|recently|newest|most\s+recent|this\s+(?:week|month|year))\b", re.IGNORECASE)
+
+# Words that only say "content": left over around a name or place they mean nothing
+FILLER = {"articles", "article", "stories", "story", "pieces", "piece", "posts", "post", "content", "news",
+          "updates", "writings", "writing"}
+
+
+def detect_series(query: str) -> tuple:
+    """("idr interviews with farmers") -> (["IDR Interviews"], "farmers"): series words become a filter."""
+    found = []
+    for rx, name in SERIES:
+        if rx.search(query):
+            found.append(name)
+            query = rx.sub(" ", query)
+    rest = [t for t in query.split() if t.lower() not in STOPWORDS]
+    return found, (" ".join(query.split()) if rest else "")
+
+
+def detect_recent(query: str) -> tuple:
+    """("latest articles on climate") -> (True, "articles on climate")."""
+    rest = " ".join(_RECENT_RE.sub(" ", query).split())
+    return (True, rest) if rest != " ".join(query.split()) else (False, query)
+
+
+def is_filler(word: str) -> bool:
+    w = word.lower().strip(".,;:!?\"'()")
+    return w in STOPWORDS or w in FILLER or w in ("'s", "’s")
+
+
 def strip_request(query: str) -> str:
     """"articles about tamil nadu" -> "tamil nadu"; unchanged when nothing would be left."""
     q = " ".join(query.split())
@@ -151,9 +210,12 @@ def strip_request(query: str) -> str:
     return q
 
 
-def keyword_text(text: str) -> str:
-    """The search without STOPWORDS for the keyword index ("about" is in half the site); as is if only those."""
-    words = [w for w in text.split() if w.lower().strip(".,;:!?\"'()") not in STOPWORDS]
+def keyword_text(text: str, named: bool = False) -> str:
+    """
+    The search without STOPWORDS for the keyword index ("about" is in half the site); as is if only
+    those. With a name or place found, FILLER goes too ("rachita vora articles" -> "rachita vora").
+    """
+    words = [w for w in text.split() if not (is_filler(w) if named else w.lower().strip(".,;:!?\"'()") in STOPWORDS)]
     return " ".join(words) if words else text
 
 

@@ -45,13 +45,16 @@ from scripts.english import (
 from scripts.utils import classify_query, iso_to_epoch_seconds, query_tokens, MAX_QUERY_TOKENS
 from .api_common import (
     SearchRequest, SearchHit, SearchResponse, LabelRequest, QueryLabelRequest,
-    _cache_key, _cache_get, _cache_put, build_candidates, check_vector_size, broad_query_weights,
+    BROAD_QUERY_RECENCY, _cache_key, _cache_get, _cache_put, build_candidates, check_vector_size, broad_query_weights,
 )
 from .db import (
     get_engine, ensure_schema, insert_query, insert_candidates, insert_label, insert_error,
     searches_since, errors_since, label_counts,
 )
-from .english_entities import STOPWORDS, Gazetteer, detect_entities, detect_post_type, keyword_text, strip_request
+from .english_entities import (
+    STOPWORDS, Gazetteer, detect_entities, detect_post_type, detect_recent, detect_series, is_filler, keyword_text,
+    query_tokens as name_tokens, strip_request,
+)
 from .english_extras import QuickLinks, Speller
 from .ranker_v2 import ranker_v2, load_weights
 from . import usage_feed
@@ -110,6 +113,8 @@ for _, r in articles_df.iterrows():
         "location": leaves(as_list(r["locations"])),
         "partner_label": None,
         "contributors": as_list(r["contributors"]),
+        # Series and formats a search can be narrowed to (english_entities.SERIES)
+        "series": set(leaves(cats)) | {x.split(">")[0].strip() for x in as_list(r["podcast_series"])},
         # [{"lang": "HI", "url": ...}, ...] from scripts/en/01_prepare_english.py
         "translations": [{"lang": str(x["lang"]), "url": str(x["url"])}
                          for x in (r["translations"] if "translations" in r and r["translations"] is not None else [])],
@@ -131,6 +136,39 @@ gazetteer = Gazetteer(
 speller = Speller((f"{r['title']} {r['summary']} {r['content']}" for _, r in articles_df.iterrows()),
                   {a for m in articles_meta.values() for a in m["contributors"]}, STOPWORDS)
 quick_links = QuickLinks(root / "config" / "en_quick_links.json")
+
+
+def title_key(text: str) -> str:
+    """Letters and digits only: "Love, not log frames" and "love not logframes" are the same title."""
+    return re.sub(r"[^a-z0-9]+", "", name_tokens_text(text))
+
+
+def name_tokens_text(text: str) -> str:
+    return " ".join(name_tokens(text))
+
+
+def url_key(url: str) -> str:
+    """idronline.org address without scheme, www, query or trailing slash."""
+    m = re.match(r"^\s*(?:https?://)?(?:www\.)?idronline\.org(/[^\s?#]*)", url or "", re.IGNORECASE)
+    return m.group(1).rstrip("/").lower() if m else ""
+
+
+# A search that is an article's exact title (two words or more) puts that article first
+by_title: Dict[str, str] = {}
+for _aid, _m in articles_meta.items():
+    _k = title_key(_m["title"] or "")
+    if len(name_tokens(_m["title"] or "")) >= 2:
+        by_title.setdefault(_k, _aid)
+by_url = {url_key(m["url"] or ""): a for a, m in articles_meta.items() if url_key(m["url"] or "")}
+by_profile = {url_key(contributor_url(n)): n for m in articles_meta.values() for n in m["contributors"]}
+
+# Humour pieces (460 of ~3,000) have short titles made of everyday words ("Yoga asanas for
+# managing funding conversations") and won short topic searches, which nobody makes to find them.
+# They are left out unless asked for ("humour", "funny", "memes"), searched by exact title or link,
+# or when the search is for an author (some write mostly humour: Vu Le, Rachita Vora's cartoons).
+HUMOUR_ID = {a for a, m in articles_meta.items() if "Humour" in m["series"]}
+# "latest ...": this many best matches are shown newest first
+RECENT_POOL = 20
 
 QUERY_PREFIX, _, _TRUST = prefixes(MODEL_NAME)
 
@@ -177,6 +215,9 @@ class EnglishSearchResponse(SearchResponse):
     corrected_query: Optional[str] = None
     # Site pages when the search is about the site itself ("contact", "write for idr"): [{title, url}]
     quick_links: List[Dict[str, str]] = []
+    # Content types or series asked for that nothing matched together with the name or place,
+    # so the results are without them ("rachita vora podcast" -> ["podcast"]: her other pieces)
+    dropped_filters: List[str] = []
 
 
 class EnglishSearchRequest(SearchRequest):
@@ -251,12 +292,19 @@ def run_search(req: EnglishSearchRequest, started: float, background_tasks: Back
     if req.ranker and req.ranker != RANKER_VERSION:
         raise HTTPException(status_code=400, detail=f"ranker must be {RANKER_VERSION}")
     per_page = max(1, int(req.per_page))
+    # A pasted idronline.org link: that article (or that person's pieces), not a junk query
+    pinned = by_url.get(url_key(req.query))
+    profile = by_profile.get(url_key(req.query))
+    if pinned or profile:
+        req = req.model_copy(update={"query": articles_meta[pinned]["title"] if pinned else profile, "exact": True})
     if classify_query(req.query)[0] == "junk":
         return EnglishSearchResponse(query_id=0, mode="junk", query_used="", query_semantic="", total_results=0,
                                      total_pages=1, page=1, per_page=per_page, results=[])
 
     corrected = None if req.exact else speller.correct(req.query)
     query = corrected or req.query
+    if corrected and title_key(corrected) == title_key(req.query):
+        corrected = None  # only a hyphen joined ("well-being" -> "wellbeing"): nothing to tell the reader
     key = _cache_key(query, req.filter_by, RANKER_VERSION)
     res = _cache_get(key)
     cached = res is not None
@@ -300,7 +348,8 @@ def run_search(req: EnglishSearchRequest, started: float, background_tasks: Back
 
     return EnglishSearchResponse(query_id=qid, mode="en", query_used=res["query_used"], query_semantic=res["query_semantic"],
                                  total_results=total, total_pages=total_pages, page=page, per_page=per_page, results=hits,
-                                 author=res.get("author"), corrected_query=corrected, quick_links=links)
+                                 author=res.get("author"), corrected_query=corrected, quick_links=links,
+                                 dropped_filters=res.get("dropped_filters") or [])
 
 
 def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
@@ -316,10 +365,15 @@ def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
 def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     """Understand the query, retrieve from Typesense and Qdrant, rank. Cached per query."""
     kind, year = classify_query(query)
-    text = strip_request(" ".join(query.split()[:MAX_QUERY_TOKENS]))
+    text = " ".join(query.split()[:MAX_QUERY_TOKENS])
+    exact_title = by_title.get(title_key(text)) if len(name_tokens(text)) >= 2 else None
+    recent, text = detect_recent(text)
+    text = strip_request(text)
     filters: List[str] = [filter_by] if filter_by else []
+    narrow: List[str] = []  # content-type and series filters, dropped when nothing matches them
     allowed: Optional[set] = None
     post_types: List[str] = []
+    series: List[str] = []
     if kind == "year":
         start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
         end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
@@ -332,8 +386,16 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
         # "podcast on climate" -> podcasts only, searched for "on climate"
         post_types, text = detect_post_type(text)
         if post_types:
-            filters.append(f"post_type:=[{','.join(post_types)}]")
+            narrow.append(f"post_type:=[{','.join(post_types)}]")
             allowed = {a for a, m in articles_meta.items() if m["post_type"] in post_types}
+        # "idr interviews with farmers" -> IDR Interviews only, searched for "farmers"
+        series, text = detect_series(text)
+        if series:
+            in_series = {a for a, m in articles_meta.items() if m["series"] & set(series)}
+            allowed = in_series if allowed is None else allowed & in_series
+            narrow.append(f"id:[{','.join(sorted(in_series)) or '__none__'}]")
+        if all(is_filler(w) for w in text.split()):
+            text = ""  # "latest articles", "humour posts": the filters are the whole search
 
     entity = detect_entities(text, gazetteer) if text else {"matches": {}, "hard": {}, "confidence": {}}
     hard = entity.get("hard", {})
@@ -343,7 +405,6 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
               if len(named) == 1 else None)
     if entity.get("filter_by_auto"):
         filters.append(entity["filter_by_auto"])
-    filter_final = " && ".join(f"({f})" for f in filters) if len(filters) > 1 else (filters[0] if filters else None)
 
     ids: Optional[set] = None
     if hard.get("contributors_norm"):
@@ -351,23 +412,33 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     if hard.get("locations_norm"):
         loc_ids = ids_with("locations_all", hard["locations_norm"])
         ids = loc_ids if ids is None else (ids & loc_ids) or ids
+    dropped: List[str] = []
+    if allowed is not None and ids is not None and not ids & allowed:
+        # "rachita vora podcast": she has no podcasts, so show her pieces rather than nothing
+        dropped, narrow, allowed = post_types + series, [], None
     if allowed is not None:
         ids = allowed if ids is None else (ids & allowed)
+    filters += narrow
+    no_humour = "Humour" not in series and not named and not entity.get("name_query")
+    if no_humour and exact_title not in HUMOUR_ID:
+        filters.append("categories:!=[`Humour`]")
+    filter_final = " && ".join(f"({f})" for f in filters) if len(filters) > 1 else (filters[0] if filters else None)
     qdrant_ids = sorted(ids) if ids else (["__none__"] if ids is not None else None)
 
     timings: Dict[str, float] = {}
     t = time.perf_counter()
-    lex = typesense_search(keyword_text(text) if text else "*", filter_final)
+    lex = typesense_search(keyword_text(text, named=bool(hard)) if text else "*", filter_final)
     timings["t_typesense"] = time.perf_counter() - t
     query_semantic, sem_a, sem_c = "", [], []
     if text:
         drop = set(entity.get("strip_tokens") or [])
-        kept = [w for w in text.split() if w.lower().strip(".,;:!?\"'()") not in drop]
+        # "saba kohli dave's articles": the name's words (with 's) go, then what only says "content"
+        kept = [w for w in text.split() if not (set(name_tokens(w)) <= drop | {"s"} and name_tokens(w))]
         if drop:
             # "water crisis in maharashtra" -> "water crisis", not "water crisis in"
-            while kept and kept[-1].lower() in STOPWORDS:
+            while kept and is_filler(kept[-1]):
                 kept.pop()
-            while kept and kept[0].lower() in STOPWORDS:
+            while kept and is_filler(kept[0]):
                 kept.pop(0)
         query_semantic = " ".join(kept) if kept else text
         t = time.perf_counter()
@@ -385,7 +456,24 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     content_words = [t for t in query_tokens(text) if t not in STOPWORDS]
     weights, broad = broad_query_weights(weights, len(content_words), len(lex), LEXICAL_TOPK,
                                          specific=bool(hard) or bool(entity.get("name_query")))
+    if recent:
+        weights = {**weights, "recency": max(weights.get("recency", 0.0), BROAD_QUERY_RECENCY)}
     ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=int(time.time()), weights=weights)
+    if no_humour:
+        kept_ranked = [it for it in ranked if it["article_id"] not in HUMOUR_ID or it["article_id"] == exact_title]
+        ranked = kept_ranked or ranked  # nothing but humour matched: show that rather than nothing
+    if exact_title:
+        for it in ranked:
+            if it["article_id"] == exact_title:
+                it["score"] = max(x["score"] for x in ranked) + 1.0
+    ranked.sort(key=lambda x: x["score"], reverse=True)
+    if recent:
+        # "latest ...": the best matches, newest first
+        top = sorted(ranked[:RECENT_POOL], key=lambda x: articles_meta.get(x["article_id"], {}).get("published_ts") or 0,
+                     reverse=True)
+        ranked = top + ranked[RECENT_POOL:]
+    for r, it in enumerate(ranked, start=1):
+        it["rank"] = r
     timings["t_rank"] = time.perf_counter() - t
 
     return {
@@ -393,11 +481,13 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
         "author": author,
         "query_semantic": query_semantic,
         "ranked": ranked,
+        "dropped_filters": dropped,
         "meta": {
             "lex_n": len(lex), "sem_article_n": len(sem_a), "sem_chunk_n": len(sem_c), "cand_n": len(candidates),
             "entity_matches": entity.get("matches", {}), "entity_hard": hard,
             "filter_by_final": filter_final, "post_types": post_types, "query_kind": kind,
             "name_query": bool(entity.get("name_query")), "broad_query": broad,
+            "series": series, "recent": recent, "dropped_filters": dropped, "exact_title": exact_title,
             **{k: round(v, 3) for k, v in timings.items()},
         },
     }
