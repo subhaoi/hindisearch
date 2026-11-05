@@ -33,6 +33,9 @@ def main() -> None:
 
       python scripts/29_eval_search_on_questions.py --api http://localhost:8000 --tag current
     Compare runs with the same --sample and --seed.
+
+    English: add --exclude-category Humour. Search leaves humour out unless asked for, so
+    questions about humour pieces would miss by design (224 of the 1,500 in Nov 2026).
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default="http://localhost:8000")
@@ -43,6 +46,9 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--articles", default=None,
                     help="Canonical parquet: keep only questions about articles still on the site")
+    ap.add_argument("--exclude-category", action="append", default=[],
+                    help="Drop questions about articles in this category (as in --articles' categories, e.g. "
+                         "Humour); applied after sampling, so the other questions stay the same")
     ap.add_argument("--k", type=int, default=10, help="Results kept per question (scores still use the top 10)")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default=None)
@@ -53,6 +59,15 @@ def main() -> None:
     if args.articles:
         q = q[q["article_id"].astype(str).isin(set(pd.read_parquet(args.articles)["id"].astype(str)))]
     q = q.sample(min(args.sample, len(q)), random_state=args.seed).reset_index(drop=True)
+    if args.exclude_category:
+        if not args.articles:
+            ap.error("--exclude-category needs --articles")
+        arts = pd.read_parquet(args.articles)
+        drop = {str(a) for a, cats in zip(arts["id"], arts["categories"])
+                if set(args.exclude_category) & {str(c).split(">")[-1].strip() for c in list(cats)}}
+        before = len(q)
+        q = q[~q["article_id"].astype(str).isin(drop)].reset_index(drop=True)
+        print(f"Left out {before - len(q)} questions about {', '.join(args.exclude_category)}; {len(q)} remain")
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         got: List[Dict[str, Any]] = list(pool.map(
             lambda r: first_hit(args.api, r[0], str(r[1]), args.k), zip(q["query"], q["article_id"])))
@@ -62,6 +77,7 @@ def main() -> None:
     q["top"] = [g["top"] for g in got]
 
     result = {"tag": args.tag, "api": args.api, "at": datetime.now(timezone.utc).isoformat(),
+              "excluded_categories": args.exclude_category,
               "seconds_median": float(q["seconds"].median()), "overall": summary(q["rank"]),
               "by_set": {k: summary(g["rank"]) for k, g in q.groupby("split")},
               "by_style": {k: summary(g["rank"]) for k, g in q.groupby("style")}}
