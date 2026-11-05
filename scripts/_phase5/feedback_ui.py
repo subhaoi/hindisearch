@@ -83,10 +83,12 @@ WORDING = {
         "saved": "✓ Saved",
         "save_failed": "Not saved. Please press again.",
         "show_more": "Load more results",
-        "nothing_question": "Nothing useful in these results?",
-        "nothing_button": "Tell us",
+        # Marks the whole search, so the button says what it records (not "Tell us")
+        "nothing_question": "Were none of these results useful?",
+        "nothing_button": "None were useful",
+        "nothing_confirm": "You marked some results 👍 Useful. Mark this whole search as having nothing useful?",
         "nothing_prompt": "What were you looking for? (optional)",
-        "nothing_saved": "✓ Saved. Thank you!",
+        "nothing_saved": "✓ Noted: none were useful. Thank you!",
         "by": "By",
         "also_in": "Also in",
         "author_line": "Author · {n} pieces on IDR",
@@ -534,6 +536,7 @@ HTML = """
 
     async function markNone(){
       if(!queryId) return;
+      if(T.nothing_confirm && Object.values(ratings).includes(1) && !confirm(T.nothing_confirm)) return;
       const note = prompt(T.nothing_prompt) || null;
       const st = el("nothingStatus");
       try{
