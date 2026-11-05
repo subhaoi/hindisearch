@@ -32,6 +32,21 @@ BROAD_SHARE = 0.20
 # common in headlines/summaries (a surname like "Rice" or "Hope" is also an ordinary word)
 COMMON_WORD_SHARE = 0.01
 
+# Regions people search by: the states (and tag) an article must be tagged with to count
+REGIONS = [
+    (re.compile(r"\b(?:north\s*-?\s*east(?:ern)?(?:\s+india)?|ne\s+india|seven\s+sisters)\b", re.IGNORECASE),
+     {"Arunachal Pradesh", "Assam", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Sikkim", "Tripura", "Northeast India"}),
+]
+
+
+def detect_region(query: str) -> tuple:
+    """("education status in northeast india") -> ({states...}, "education status in")."""
+    for rx, places in REGIONS:
+        m = rx.search(query)
+        if m:
+            return places, " ".join(rx.sub(" ", query, count=1).split())
+    return None, query
+
 # Bylines that are IDR itself: not a person to filter on or show a card for
 HOUSE_NAMES = {"India Development Review", "IDR"}
 
@@ -95,6 +110,7 @@ def detect_entities(query: str, gaz: Gazetteer, max_per_field: int = 3) -> Dict[
     hard: Dict[str, List[str]] = {}
     strip: Set[int] = set()
     name_query = False
+    single_name = None
 
     for field, key in FIELDS.items():
         got, strong = [], []
@@ -117,6 +133,9 @@ def detect_entities(query: str, gaz: Gazetteer, max_per_field: int = 3) -> Dict[
             partial = [v for v, vt, _ in gaz.values[field] if toks[0] in vt]
             if 1 <= len(partial) <= max_per_field:
                 got, name_query = partial, True
+                # A rare word that is part of exactly one person's name ("kuvethilu"): that person
+                if len(partial) == 1 and len(toks[0]) >= 5:
+                    single_name = partial[0]
         # Several words that are consecutive words of an author's longer name ("deep jyoti" ->
         # Deep Jyoti Sonu Brahma); not when every word is common in headlines ("india
         # development" is a topic, not the author India Development Review)
@@ -139,6 +158,7 @@ def detect_entities(query: str, gaz: Gazetteer, max_per_field: int = 3) -> Dict[
         "filter_by_auto": " && ".join(filters) if filters else None,
         "strip_tokens": [toks[i] for i in sorted(strip)],
         "name_query": name_query,
+        "single_name": single_name,
     }
 
 

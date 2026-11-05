@@ -1,0 +1,466 @@
+{
+ "note": "Topic card for English search: when the whole search (after request words like 'articles about' and filler) is one of a topic's triggers, the reply carries that topic, its page and its piece count. Built 2026-11-05 by fixed rules from the site's tags and categories and real searches (see ~/Downloads/IDR Search/topics/topics_draft.csv for the reasons per row); edit triggers here. 'kind' and 'path' say what to count: a category path as in the exports, or a tag name.",
+ "topics": [
+  {
+   "name": "Education",
+   "kind": "category",
+   "path": "Sectors>Education",
+   "url": "https://idronline.org/sectors/education/",
+   "triggers": [
+    "education",
+    "rte",
+    "government school",
+    "government schools",
+    "right to education"
+   ]
+  },
+  {
+   "name": "Health & Well-being",
+   "kind": "category",
+   "path": "Sectors>Health & Well-being",
+   "url": "https://idronline.org/sectors/health/",
+   "triggers": [
+    "health",
+    "healthcare",
+    "wellbeing",
+    "public health",
+    "rural health",
+    "well being",
+    "health and well being"
+   ]
+  },
+  {
+   "name": "Philanthropy & CSR",
+   "kind": "category",
+   "path": "Themes>Philanthropy & CSR",
+   "url": "https://idronline.org/themes/philanthropy-csr/",
+   "triggers": [
+    "csr",
+    "philanthropy",
+    "philanthropy csr",
+    "corporate social responsibility",
+    "philanthropy and csr"
+   ]
+  },
+  {
+   "name": "climate change",
+   "kind": "tag",
+   "path": "climate change",
+   "url": "https://idronline.org/tag/climate-change/",
+   "triggers": [
+    "climate change"
+   ]
+  },
+  {
+   "name": "Gender",
+   "kind": "category",
+   "path": "Themes>Gender",
+   "url": "https://idronline.org/themes/gender/",
+   "triggers": [
+    "gender",
+    "genders",
+    "women",
+    "gender equality",
+    "violence against women"
+   ]
+  },
+  {
+   "name": "Advocacy & Government",
+   "kind": "category",
+   "path": "Themes>Advocacy & Government",
+   "url": "https://idronline.org/themes/advocacy-government/",
+   "triggers": [
+    "advocacy",
+    "government",
+    "governments"
+   ]
+  },
+  {
+   "name": "Agriculture",
+   "kind": "category",
+   "path": "Sectors>Agriculture",
+   "url": "https://idronline.org/sectors/agriculture/",
+   "triggers": [
+    "agriculture",
+    "organic farming"
+   ]
+  },
+  {
+   "name": "Fundraising & Communications",
+   "kind": "category",
+   "path": "Expertise>Fundraising & Communications",
+   "url": "https://idronline.org/expertise/fundraising-and-communications/",
+   "triggers": [
+    "communication",
+    "communications",
+    "fundraising",
+    "fundraising communications",
+    "fundraising and communications"
+   ]
+  },
+  {
+   "name": "mental health",
+   "kind": "tag",
+   "path": "mental health",
+   "url": "https://idronline.org/tag/mental-health/",
+   "triggers": [
+    "mental health"
+   ]
+  },
+  {
+   "name": "Youth",
+   "kind": "category",
+   "path": "Themes>Youth",
+   "url": "https://idronline.org/themes/youth/",
+   "triggers": [
+    "youth",
+    "youths"
+   ]
+  },
+  {
+   "name": "Rights",
+   "kind": "category",
+   "path": "Sectors>Rights",
+   "url": "https://idronline.org/sectors/rights/",
+   "triggers": [
+    "right",
+    "rights"
+   ]
+  },
+  {
+   "name": "Water & Sanitation",
+   "kind": "category",
+   "path": "Sectors>Water & Sanitation",
+   "url": "https://idronline.org/sectors/water-sanitation/",
+   "triggers": [
+    "sanitation",
+    "water",
+    "waters",
+    "water sanitation",
+    "water and sanitation"
+   ]
+  },
+  {
+   "name": "data",
+   "kind": "tag",
+   "path": "data",
+   "url": "https://idronline.org/tag/data/",
+   "triggers": [
+    "data"
+   ]
+  },
+  {
+   "name": "Labour",
+   "kind": "tag",
+   "path": "Labour",
+   "url": "https://idronline.org/tag/labour/",
+   "triggers": [
+    "labour",
+    "labours"
+   ]
+  },
+  {
+   "name": "Sexual and reproductive health",
+   "kind": "tag",
+   "path": "Sexual and reproductive health",
+   "url": "https://idronline.org/tag/sexual-and-reproductive-health/",
+   "triggers": [
+    "sexual and reproductive health"
+   ]
+  },
+  {
+   "name": "anganwadi",
+   "kind": "tag",
+   "path": "anganwadi",
+   "url": "https://idronline.org/tag/anganwadi/",
+   "triggers": [
+    "aanganwadi",
+    "anganwadi",
+    "anganwadis"
+   ]
+  },
+  {
+   "name": "Diversity & Inclusion",
+   "kind": "category",
+   "path": "Themes>Diversity & Inclusion",
+   "url": "https://idronline.org/themes/diversity-inclusion/",
+   "triggers": [
+    "disabilities",
+    "disability",
+    "diversity",
+    "inclusion",
+    "diversity and inclusion"
+   ]
+  },
+  {
+   "name": "Northeast India",
+   "kind": "tag",
+   "path": "Northeast India",
+   "url": "https://idronline.org/tag/northeast-india/",
+   "triggers": [
+    "northeast india"
+   ]
+  },
+  {
+   "name": "Scale",
+   "kind": "category",
+   "path": "Themes>Scale",
+   "url": "https://idronline.org/themes/scale/",
+   "triggers": [
+    "scale",
+    "scales"
+   ]
+  },
+  {
+   "name": "caste",
+   "kind": "tag",
+   "path": "caste",
+   "url": "https://idronline.org/tag/caste/",
+   "triggers": [
+    "caste",
+    "castes"
+   ]
+  },
+  {
+   "name": "self-help groups",
+   "kind": "tag",
+   "path": "self-help groups",
+   "url": "https://idronline.org/tag/self-help-groups/",
+   "triggers": [
+    "shg",
+    "shgs",
+    "self help group",
+    "self help groups"
+   ]
+  },
+  {
+   "name": "discrimination",
+   "kind": "tag",
+   "path": "discrimination",
+   "url": "https://idronline.org/tag/discrimination/",
+   "triggers": [
+    "discrimination",
+    "discriminations"
+   ]
+  },
+  {
+   "name": "dalit",
+   "kind": "tag",
+   "path": "dalit",
+   "url": "https://idronline.org/tag/dalit/",
+   "triggers": [
+    "dalit",
+    "dalits"
+   ]
+  },
+  {
+   "name": "Livelihoods",
+   "kind": "category",
+   "path": "Sectors>Livelihoods",
+   "url": "https://idronline.org/sectors/livelihoods/",
+   "triggers": [
+    "livelihood",
+    "livelihoods"
+   ]
+  },
+  {
+   "name": "Leadership & Talent",
+   "kind": "category",
+   "path": "Expertise>Leadership & Talent",
+   "url": "https://idronline.org/expertise/leadership-talent/",
+   "triggers": [
+    "leadership",
+    "talent",
+    "talents",
+    "leadership talent"
+   ]
+  },
+  {
+   "name": "civil society",
+   "kind": "tag",
+   "path": "civil society",
+   "url": "https://idronline.org/tag/civil-society/",
+   "triggers": [
+    "civil society"
+   ]
+  },
+  {
+   "name": "farming",
+   "kind": "tag",
+   "path": "farming",
+   "url": "https://idronline.org/tag/farming/",
+   "triggers": [
+    "farming"
+   ]
+  },
+  {
+   "name": "Urban",
+   "kind": "category",
+   "path": "Themes>Urban",
+   "url": "https://idronline.org/themes/urban/",
+   "triggers": [
+    "urban"
+   ]
+  },
+  {
+   "name": "migrant workers",
+   "kind": "tag",
+   "path": "migrant workers",
+   "url": "https://idronline.org/tag/migrant-workers/",
+   "triggers": [
+    "migrant worker",
+    "migrant workers"
+   ]
+  },
+  {
+   "name": "water management",
+   "kind": "tag",
+   "path": "water management",
+   "url": "https://idronline.org/tag/water-management/",
+   "triggers": [
+    "water management"
+   ]
+  },
+  {
+   "name": "Board & Governance",
+   "kind": "category",
+   "path": "Expertise>Board & Governance",
+   "url": "https://idronline.org/expertise/board-governance/",
+   "triggers": [
+    "board",
+    "boards",
+    "board governance"
+   ]
+  },
+  {
+   "name": "forest rights act",
+   "kind": "tag",
+   "path": "forest rights act",
+   "url": "https://idronline.org/tag/forest-rights-act/",
+   "triggers": [
+    "fra",
+    "forest rights act"
+   ]
+  },
+  {
+   "name": "ASHA workers",
+   "kind": "tag",
+   "path": "ASHA workers",
+   "url": "https://idronline.org/tag/asha-workers/",
+   "triggers": [
+    "asha worker",
+    "asha workers",
+    "accredited social health activist"
+   ]
+  },
+  {
+   "name": "COVID-19",
+   "kind": "category",
+   "path": "Themes>COVID-19",
+   "url": "https://idronline.org/themes/covid-19/",
+   "triggers": [
+    "coronavirus",
+    "covid",
+    "covid19",
+    "covid 19"
+   ]
+  },
+  {
+   "name": "Environment",
+   "kind": "category",
+   "path": "Sectors>Environment",
+   "url": "https://idronline.org/sectors/environment/",
+   "triggers": [
+    "environment",
+    "environments"
+   ]
+  },
+  {
+   "name": "Climate Emergency",
+   "kind": "category",
+   "path": "Themes>Climate Emergency",
+   "url": "https://idronline.org/themes/climate-emergency/",
+   "triggers": [
+    "climate emergency"
+   ]
+  },
+  {
+   "name": "Ecosystem Development",
+   "kind": "category",
+   "path": "Themes>Ecosystem Development",
+   "url": "https://idronline.org/themes/ecosystem-development/",
+   "triggers": [
+    "ecosystem development"
+   ]
+  },
+  {
+   "name": "Social Justice",
+   "kind": "category",
+   "path": "Themes>Social Justice",
+   "url": "https://idronline.org/themes/social-justice/",
+   "triggers": [
+    "social justice"
+   ]
+  },
+  {
+   "name": "Technology",
+   "kind": "category",
+   "path": "Expertise>Technology",
+   "url": "https://idronline.org/expertise/technology/",
+   "triggers": [
+    "technology"
+   ]
+  },
+  {
+   "name": "Programme",
+   "kind": "category",
+   "path": "Expertise>Programme",
+   "url": "https://idronline.org/expertise/programme/",
+   "triggers": [
+    "programme",
+    "programmes"
+   ]
+  },
+  {
+   "name": "Social Business",
+   "kind": "category",
+   "path": "Themes>Social Business",
+   "url": "https://idronline.org/themes/social-business/",
+   "triggers": [
+    "social business"
+   ]
+  },
+  {
+   "name": "Inequality",
+   "kind": "category",
+   "path": "Themes>Inequality",
+   "url": "https://idronline.org/themes/inequality/",
+   "triggers": [
+    "inequality"
+   ]
+  },
+  {
+   "name": "Monitoring & Evaluation",
+   "kind": "category",
+   "path": "Expertise>Monitoring & Evaluation",
+   "url": "https://idronline.org/expertise/monitoring-evaluation/",
+   "triggers": [
+    "evaluation",
+    "evaluations",
+    "monitoring",
+    "monitoring evaluation",
+    "monitoring and evaluation"
+   ]
+  },
+  {
+   "name": "Collaboration",
+   "kind": "category",
+   "path": "Themes>Collaboration",
+   "url": "https://idronline.org/themes/collaboration/",
+   "triggers": [
+    "collaboration",
+    "collaborations"
+   ]
+  }
+ ]
+}

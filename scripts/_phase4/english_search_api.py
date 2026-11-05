@@ -52,10 +52,11 @@ from .db import (
     searches_since, errors_since, label_counts,
 )
 from .english_entities import (
-    STOPWORDS, Gazetteer, detect_entities, detect_post_type, detect_recent, detect_series, is_filler, keyword_text,
+    FILLER, STOPWORDS, Gazetteer, detect_entities, detect_post_type, detect_recent, detect_region, detect_series, is_filler,
+    keyword_text,
     query_tokens as name_tokens, strip_request,
 )
-from .english_extras import QuickLinks, Speller
+from .english_extras import Topics, QuickLinks, Speller
 from .ranker_v2 import ranker_v2, load_weights
 from . import usage_feed
 
@@ -136,6 +137,12 @@ gazetteer = Gazetteer(
 speller = Speller((f"{r['title']} {r['summary']} {r['content']}" for _, r in articles_df.iterrows()),
                   {a for m in articles_meta.values() for a in m["contributors"]}, STOPWORDS)
 quick_links = QuickLinks(root / "config" / "en_quick_links.json")
+# Pieces per category path and per tag, for the topic card's count
+_topic_counts: Dict[str, int] = {}
+for _, r in articles_df.iterrows():
+    for c in as_list(r["categories"]) + as_list(r["tags"]):
+        _topic_counts[c] = _topic_counts.get(c, 0) + 1
+topics = Topics(root / "config" / "en_topics.json", _topic_counts, STOPWORDS | FILLER)
 
 
 def title_key(text: str) -> str:
@@ -169,6 +176,12 @@ by_profile = {url_key(contributor_url(n)): n for m in articles_meta.values() for
 HUMOUR_ID = {a for a, m in articles_meta.items() if "Humour" in m["series"]}
 # "latest ...": this many best matches are shown newest first
 RECENT_POOL = 20
+# "intergenerational learning": when no headline has all the words of a 2-4 word search, the few
+# pieces (PHRASE_RARE_MAX or fewer) that use them as an exact phrase are lifted into the top places
+PHRASE_MAX_WORDS = 4
+HEADLINE_FIELDS = ("title,seo_title,summary", "6,4,3")
+PHRASE_RARE_MAX = 5
+PHRASE_RARE_MODE = os.environ.get("EN_PHRASE_RARE", "third")  # third | fifth | off
 
 QUERY_PREFIX, _, _TRUST = prefixes(MODEL_NAME)
 
@@ -215,6 +228,8 @@ class EnglishSearchResponse(SearchResponse):
     corrected_query: Optional[str] = None
     # Site pages when the search is about the site itself ("contact", "write for idr"): [{title, url}]
     quick_links: List[Dict[str, str]] = []
+    # Set when the whole search is a topic (config/en_topics.json): {"name", "url" (topic page), "count"}
+    topic: Optional[Dict[str, Any]] = None
     # Content types or series asked for that nothing matched together with the name or place,
     # so the results are without them ("rachita vora podcast" -> ["podcast"]: her other pieces)
     dropped_filters: List[str] = []
@@ -225,13 +240,20 @@ class EnglishSearchRequest(SearchRequest):
     exact: bool = False
 
 
-def typesense_search(q: str, filter_by: Optional[str]) -> List[Dict[str, Any]]:
+def typesense_search(q: str, filter_by: Optional[str], fields: Optional[Tuple[str, str]] = None,
+                     all_words: bool = False) -> List[Dict[str, Any]]:
     p: Dict[str, Any] = {
         "collection": TS_COLLECTION, "q": q, "per_page": LEXICAL_TOPK, "page": 1,
         "query_by": "title,seo_title,summary,content,contributors,locations_all,tags",
         "query_by_weights": "6,4,3,1,5,4,2",
         "num_typos": "2,2,2,1,1,1,1",
+        "include_fields": "id",
     }
+    if fields:
+        p["query_by"], p["query_by_weights"] = fields
+        p["num_typos"] = ",".join("1" for _ in fields[0].split(","))
+    if all_words:
+        p.update({"drop_tokens_threshold": 0, "typo_tokens_threshold": 0, "per_page": 1})
     if q == "*":
         p["sort_by"] = "published_ts:desc"
     if filter_by:
@@ -312,6 +334,7 @@ def run_search(req: EnglishSearchRequest, started: float, background_tasks: Back
         res = retrieve(query, req.filter_by)
         _cache_put(key, res)
     links = quick_links.match(req.query)
+    topic_card = None if res.get("author") else topics.match(strip_request(query))
     ranked = res["ranked"]
 
     total = len(ranked)
@@ -342,14 +365,16 @@ def run_search(req: EnglishSearchRequest, started: float, background_tasks: Back
             query_semantic=res["query_semantic"], filters={"filter_by": req.filter_by} if req.filter_by else None,
             ranker_version=RANKER_VERSION, retrieval_version=RETRIEVAL_VERSION,
             meta={**res["meta"], "cached": cached, "took_s": round(time.perf_counter() - started, 2),
-                  "corrected_query": corrected, "exact": req.exact, "quick_links": [x["title"] for x in links]},
+                  "corrected_query": corrected, "exact": req.exact, "quick_links": [x["title"] for x in links],
+                  "topic": (topic_card or {}).get("name")},
         )
         background_tasks.add_task(log_candidates, qid, ranked)
 
     return EnglishSearchResponse(query_id=qid, mode="en", query_used=res["query_used"], query_semantic=res["query_semantic"],
                                  total_results=total, total_pages=total_pages, page=page, per_page=per_page, results=hits,
                                  author=res.get("author"), corrected_query=corrected, quick_links=links,
-                                 dropped_filters=res.get("dropped_filters") or [])
+                                 dropped_filters=res.get("dropped_filters") or [],
+                                 topic=topic_card)
 
 
 def log_candidates(qid: int, ranked: List[Dict[str, Any]]) -> None:
@@ -374,6 +399,7 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
     allowed: Optional[set] = None
     post_types: List[str] = []
     series: List[str] = []
+    region_words: set = set()
     if kind == "year":
         start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
         end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp())
@@ -394,13 +420,24 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
             in_series = {a for a, m in articles_meta.items() if m["series"] & set(series)}
             allowed = in_series if allowed is None else allowed & in_series
             narrow.append(f"id:[{','.join(sorted(in_series)) or '__none__'}]")
+        # "education status in northeast india": pieces tagged with one of its states or the region
+        region, rest = detect_region(text)
+        if region and rest.strip():
+            in_region = {a for a, m in articles_meta.items() if region & (set(m["location"]) | set(m["tags"]))}
+            if in_region:
+                allowed = in_region if allowed is None else allowed & in_region
+                narrow.append(f"id:[{','.join(sorted(in_region))}]")
+                # the keywords keep "northeast" (pieces about the region as a whole); the meaning is the rest
+                region_words = set(query_tokens(text)) - set(query_tokens(rest))
         if all(is_filler(w) for w in text.split()):
             text = ""  # "latest articles", "humour posts": the filters are the whole search
 
     entity = detect_entities(text, gazetteer) if text else {"matches": {}, "hard": {}, "confidence": {}}
     hard = entity.get("hard", {})
     # One author named in full: the page can show who they are and link to their profile
-    named = hard.get("contributors_norm") or []
+    if series or post_types or allowed is not None:
+        entity["single_name"] = None  # "a day in the life of bhagyashri": the series decides, not one name
+    named = hard.get("contributors_norm") or ([entity["single_name"]] if entity.get("single_name") else [])
     author = ({"name": named[0], "count": len(ids_with("contributors_norm", named)), "url": contributor_url(named[0])}
               if len(named) == 1 else None)
     if entity.get("filter_by_auto"):
@@ -427,11 +464,26 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
 
     timings: Dict[str, float] = {}
     t = time.perf_counter()
-    lex = typesense_search(keyword_text(text, named=bool(hard)) if text else "*", filter_final)
+    kw = keyword_text(text, named=bool(hard)) if text else "*"
+    lex = typesense_search(kw, filter_final)
+    if entity.get("single_name"):
+        # "kuvethilu": that person's pieces and the ones that name them ("as told to ..."), nothing else
+        theirs = ids_with("contributors_norm", named) | {h["article_id"] for h in lex}
+        ids = theirs if ids is None else ids & theirs
+        qdrant_ids = sorted(ids) or ["__none__"]
+    # "intergenerational learning": articles with the words side by side come first, ahead of
+    # ones that only have "intergenerational" here and "learning" there
+    words = kw.split() if text else []
+    phrase_rare: set = set()  # no headline has all the words, but a few pieces use them as a phrase
+    if PHRASE_RARE_MODE != "off" and 2 <= len(words) <= PHRASE_MAX_WORDS \
+            and not typesense_search(" ".join(words), filter_final, fields=HEADLINE_FIELDS, all_words=True):
+        quoted = '"' + " ".join(w.strip('"') for w in words) + '"'
+        anywhere = {h["article_id"] for h in typesense_search(quoted, filter_final)}
+        phrase_rare = anywhere if len(anywhere) <= PHRASE_RARE_MAX else set()
     timings["t_typesense"] = time.perf_counter() - t
     query_semantic, sem_a, sem_c = "", [], []
     if text:
-        drop = set(entity.get("strip_tokens") or [])
+        drop = set(entity.get("strip_tokens") or []) | region_words
         # "saba kohli dave's articles": the name's words (with 's) go, then what only says "content"
         kept = [w for w in text.split() if not (set(name_tokens(w)) <= drop | {"s"} and name_tokens(w))]
         if drop:
@@ -458,7 +510,20 @@ def retrieve(query: str, filter_by: Optional[str]) -> Dict[str, Any]:
                                          specific=bool(hard) or bool(entity.get("name_query")))
     if recent:
         weights = {**weights, "recency": max(weights.get("recency", 0.0), BROAD_QUERY_RECENCY)}
+    for pid in phrase_rare:
+        if pid in articles_meta and pid not in {c["article_id"] for c in candidates} and (ids is None or pid in ids):
+            candidates.append({**articles_meta[pid], "article_id": pid})
     ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=int(time.time()), weights=weights)
+    if entity.get("single_name"):
+        ranked = [it for it in ranked if it["article_id"] in ids]
+    if phrase_rare and ranked:
+        # the few pieces that use this exact phrase are lifted to at least that place; a passing
+        # mention should not take first place
+        place = {"third": 3, "fifth": 5}.get(PHRASE_RARE_MODE, 3)
+        floor = sorted((x["score"] for x in ranked), reverse=True)[min(place - 1, len(ranked) - 1)]
+        for it in ranked:
+            if it["article_id"] in phrase_rare:
+                it["score"] = max(it["score"], floor + 1e-6)
     if no_humour:
         kept_ranked = [it for it in ranked if it["article_id"] not in HUMOUR_ID or it["article_id"] == exact_title]
         ranked = kept_ranked or ranked  # nothing but humour matched: show that rather than nothing

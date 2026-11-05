@@ -97,6 +97,9 @@ WORDING = {
         "author_link": "See profile on IDR →",
         "corrected": "Showing results for {c}.",
         "search_instead": "Search instead for {q}",
+        "topic_kicker": "Topic",
+        "topic_line": "{n} pieces on IDR",
+        "topic_link": "Explore the topic →",
         "dropped": "No {what} matched this search, so here is everything that did.",
         "quick_title": "Looking for this?",
         # Posts show as articles: to a reader they are the same (see kind() in the page script)
@@ -159,6 +162,9 @@ HTML = """
     .chips button.on{ background:#1d1d1d; border-color:#1d1d1d; color:#fff; }
 
     .person{ display:flex; align-items:center; gap:16px; border:1px solid var(--line); border-radius:14px; padding: 14px 18px; margin: 10px 0 8px; }
+    .topic{ background:#f6f6f4; border-color:#f6f6f4; }
+    .topic .tag{ width:52px; height:52px; border-radius:12px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:24px; flex:none; }
+    .topic .kicker{ font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color: var(--muted); }
     .avatar{ width:58px; height:58px; border-radius:50%; background: var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:21px; flex:0 0 58px; }
     .person .nm{ font-size: 19px; font-weight:800; } .person .ds{ color: var(--muted); font-size:14px; }
     .person .link{ margin-left:auto; border:2px solid #1d1d1d; border-radius:10px; padding: 7px 14px; font-weight:700; white-space:nowrap; font-size:15px; }
@@ -280,7 +286,7 @@ HTML = """
                           "about","from","at","as","into","its","who","does","do","it","be",
                           "के","की","का","में","और","से","को","पर","है"]);
 
-    let queryId = null, results = [], author = null, corrected = null, links = [], dropped = [];
+    let queryId = null, results = [], author = null, corrected = null, links = [], dropped = [], topic = null;
     let sortMode = "best", typeFilter = null, visible = 10;
     let ratings = {};   // article id -> 1 / 0, for this search
     let wordRe = null;
@@ -399,7 +405,12 @@ HTML = """
     }
 
     function renderPerson(){
-      if(!author){ el("person").innerHTML = ""; return; }
+      // A topic card (English): the whole search is a topic with its own page on the site
+      const topicCard = topic && T.topic_link ? `<div class="person topic"><div class="tag">#</div>
+        <div><div class="kicker">${escapeHtml(T.topic_kicker)}</div><div class="nm">${escapeHtml(topic.name)}</div>
+        <div class="ds">${escapeHtml(fmt(T.topic_line, "n", topic.count))}</div></div>
+        <a class="link" href="${escapeHtml(topic.url)}" target="_blank" rel="noreferrer">${escapeHtml(T.topic_link)}</a></div>` : "";
+      if(!author){ el("person").innerHTML = topicCard; return; }
       const initials = author.name.split(/\\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase();
       el("person").innerHTML = `<div class="person"><div class="avatar">${escapeHtml(initials)}</div>
         <div><div class="nm">${escapeHtml(author.name)}</div><div class="ds">${escapeHtml(fmt(T.author_line, "n", author.count))}</div></div>
@@ -524,6 +535,7 @@ HTML = """
         corrected = data.corrected_query || null;
         links = data.quick_links || [];
         dropped = data.dropped_filters || [];
+        topic = data.topic || null;
       }catch(e){
         showMessage(T.error);
         return;

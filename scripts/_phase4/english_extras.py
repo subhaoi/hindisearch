@@ -14,7 +14,7 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 WORD_RE = re.compile(r"[a-z]+")
 
@@ -146,3 +146,29 @@ class QuickLinks:
             if hit and all(t in self.filler for t in rest.split()):
                 found.append({"title": link["title"], "url": link["url"]})
         return found
+
+
+class Topics:
+    """
+    The topic card (config/en_topics.json): when the whole search, apart from filler words, is one of a
+    topic's triggers ("adivasi", "self help groups"), that topic with its page and piece count.
+    """
+
+    def __init__(self, path: Path, counts: Dict[str, int], filler: Set[str]) -> None:
+        cfg = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"topics": []}
+        self.filler = {fold(w) for w in filler}
+        self.by_trigger: Dict[str, Dict[str, Any]] = {}
+        for t in cfg.get("topics", []):
+            card = {"name": t["name"], "url": t["url"], "count": counts.get(t["path"], 0)}
+            for w in t["triggers"]:
+                key = self._key(w)
+                if key:
+                    self.by_trigger.setdefault(key, card)
+
+    def _key(self, text: str) -> str:
+        # "health and well-being" and "health & well being" are the same search
+        return " ".join(w for w in fold(text).split() if w not in self.filler)
+
+    def match(self, query: str) -> Optional[Dict[str, Any]]:
+        key = self._key(query)
+        return self.by_trigger.get(key) if key else None
