@@ -34,8 +34,8 @@ def main() -> None:
       python scripts/29_eval_search_on_questions.py --api http://localhost:8000 --tag current
     Compare runs with the same --sample and --seed.
 
-    English: add --exclude-category Humour. Search leaves humour out unless asked for, so
-    questions about humour pieces would miss by design (224 of the 1,500 in Nov 2026).
+    English: add --exclude-category Humour; Hindi: --exclude-category हल्का-फुल्का. Search leaves
+    humour out unless asked for, so questions about humour pieces would miss by design.
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default="http://localhost:8000")
@@ -63,7 +63,8 @@ def main() -> None:
         if not args.articles:
             ap.error("--exclude-category needs --articles")
         arts = pd.read_parquet(args.articles)
-        drop = {str(a) for a, cats in zip(arts["id"], arts["categories"])
+        col = "categories" if "categories" in arts else "categories_norm"  # English | Hindi
+        drop = {str(a) for a, cats in zip(arts["id"], arts[col])
                 if set(args.exclude_category) & {str(c).split(">")[-1].strip() for c in list(cats)}}
         before = len(q)
         q = q[~q["article_id"].astype(str).isin(drop)].reset_index(drop=True)

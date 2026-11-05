@@ -251,6 +251,72 @@ for _, r in articles_df.iterrows():
                                  series_config),
     }
 
+# हल्का-फुल्का pieces (about 1 in 7) have short headlines of everyday words ("प्यारे आंदोलन")
+# and came first in about 1 in 5 real searches, though nobody searches for them that way. They
+# are left out unless asked for (the halka_fulka triggers in config/series.json), searched by
+# exact title or link, or the search is for an author.
+HUMOUR_SERIES = "halka_fulka"
+HUMOUR_IDS = {a for a, m in articles_meta.items() if HUMOUR_SERIES in (m.get("series") or [])}
+
+# How people ask rather than what they ask about: "बिहार की कहानियां", "तमिलनाडु के बारे में लेख",
+# "articles about bihar". Left in, they become the whole meaning of the search once the place
+# turns into a filter. Compared after nukta folding / as phonetic keys, like the query itself.
+_REQUEST_WORDS = {fold_devanagari(w) for w in (
+    "लेख", "लेखों", "आर्टिकल", "आर्टिकल्स", "कहानी", "कहानियां", "कहानियाँ", "कहानियों", "बारे",
+    "जुड़े", "जुड़ी", "जुड़ा", "संबंधित", "सम्बंधित", "सम्बन्धित", "ख़बर", "ख़बरें", "जानकारी")}
+_REQUEST_WORDS_ROMAN = {roman_key(w) for w in (
+    "lekh", "article", "articles", "kahani", "kahaniyan", "story", "stories", "bare", "baare",
+    "about", "related", "regarding", "news", "jankari")}
+
+# "नवीनतम लेख", "latest articles on women": the best matches newest first. Not नया/नई, which
+# are part of topics ("नई शिक्षा नीति").
+_RECENT_WORDS = {fold_devanagari(w) for w in ("नवीनतम", "ताज़ा", "ताज़े", "ताज़ी", "हालिया")} | \
+    {roman_key(w) for w in ("latest", "recent", "newest", "navintam", "taza", "taaza")}
+RECENT_POOL = 20
+
+
+def _word_key(tok: str) -> str:
+    return fold_devanagari(tok) if DEVANAGARI_RE.search(tok) else roman_key(tok)
+
+
+def strip_request(text: str) -> Tuple[str, bool]:
+    """("नवीनतम बिहार की कहानियां") -> ("बिहार की", True): request words out, and whether "latest" was asked."""
+    toks = text.split()
+    keys = [_word_key(t.strip(".,;:!?\"'()")) for t in toks]
+    recent = any(k in _RECENT_WORDS for k in keys)
+    kept = [t for t, k in zip(toks, keys) if k not in _RECENT_WORDS and k not in _REQUEST_WORDS
+            and k not in _REQUEST_WORDS_ROMAN]
+    # "हाल के" / "हाल ही" (recently): only as that phrase, हाल alone is also "condition"
+    for i in range(len(kept) - 1):
+        if _word_key(kept[i]) == fold_devanagari("हाल") and _word_key(kept[i + 1]) in (fold_devanagari("के"), fold_devanagari("ही")):
+            recent, kept = True, kept[:i] + kept[i + 2:]
+            break
+    content = [t for t in kept if not (t in HINDI_STOPWORDS or roman_key(t) in ROMAN_STOPWORD_KEYS)]
+    if not content:  # only request words ("लेख"): search it as typed, unless "latest" made it a browse
+        return ("" if recent else text), recent
+    return " ".join(kept), recent
+
+
+def title_key(text: str) -> str:
+    """Letters only, nukta folded: a search typed as the headline matches it."""
+    return "".join(_word_key(t) for t in query_tokens(text))
+
+
+# A search that is an article's exact title (two words or more) puts that article first
+by_title: Dict[str, str] = {}
+for _aid, _m in articles_meta.items():
+    if len(query_tokens(_m["title"] or "")) >= 2:
+        by_title.setdefault(title_key(_m["title"] or ""), _aid)
+
+
+def url_key(url: str) -> str:
+    """hindi.idronline.org address without scheme, query or trailing slash."""
+    m = re.match(r"^\s*(?:https?://)?hindi\.idronline\.org(/[^\s?#]*)", url or "", re.IGNORECASE)
+    return m.group(1).rstrip("/").lower() if m else ""
+
+
+by_url = {url_key(m["url"] or ""): a for a, m in articles_meta.items() if url_key(m["url"] or "")}
+
 chunks_df = read_parquet(CHUNKS_PATH)
 chunk_text_map = dict(zip(chunks_df["chunk_id"].astype(str), chunks_df["chunk_text"].astype(str)))
 
@@ -323,7 +389,8 @@ def build_semantic_query(raw_query: str, mode: str, strip_tokens: List[str]) -> 
     if strip_tokens:
         drop = set(strip_tokens)
         kept = [t for t in query_tokens(q) if t not in drop]
-        if kept:  # fall back to the original if stripping removes everything
+        # Fall back to the original if stripping leaves nothing but stopwords ("बिहार की" -> "की")
+        if any(not (t in HINDI_STOPWORDS or roman_key(t) in ROMAN_STOPWORD_KEYS) for t in kept):
             q = " ".join(kept)
     if mode in ("roman", "mixed"):
         # Known terms first ("labour law" -> "श्रम कानून"), so word-by-word conversion
@@ -472,6 +539,10 @@ def run_search(req: SearchRequest, started: float, background_tasks: BackgroundT
     if ranker_version not in RANKERS:
         raise HTTPException(status_code=400, detail=f"ranker must be one of {sorted(RANKERS)}")
 
+    # A pasted hindi.idronline.org link: that article, not a junk query
+    linked = by_url.get(url_key(req.query))
+    if linked:
+        req = req.model_copy(update={"query": articles_meta[linked]["title"]})
     kind, _ = classify_query(req.query)
     if kind == "junk":
         # Exploit probes and strings with no letters: nothing to search, and not worth logging
@@ -585,11 +656,13 @@ def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[
     rank. Returns what the response and the log need; cached per query (see _search_cache).
     """
     kind, year = classify_query(query)
-    # A pasted paragraph: keep the first MAX_QUERY_TOKENS words
-    query_text = " ".join(query.split()[:MAX_QUERY_TOKENS])
+    # A pasted paragraph: keep the first MAX_QUERY_TOKENS words; "सी.एस.आर" / "c.s.r" as one word
+    query_text = re.sub(r"(?<=[^\s\d.])\.(?=[^\s\d.])", "", " ".join(query.split()[:MAX_QUERY_TOKENS]))
+    exact_title = by_title.get(title_key(query_text)) if len(query_tokens(query_text)) >= 2 else None
     extra_filters: List[str] = []
     series_ids: Optional[set] = None
     series: List[str] = []
+    recent = False
     if kind == "year":
         # A bare year ("2026") lists that year's articles, newest first
         start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
@@ -606,6 +679,7 @@ def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[
         if series:
             extra_filters.append(f"series:=[{','.join(series)}]")
             series_ids = {a for a, m in articles_meta.items() if set(m.get("series") or []) & set(series)}
+        query_text, recent = strip_request(query_text)
 
     browse = not query_text.strip()
     if browse:
@@ -621,13 +695,27 @@ def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[
     entity = detect_entities(query_full=canon["q_full"], gazetteer=gazetteer)
     hard = entity.get("hard", {})
 
-    filter_parts = [f for f in [filter_by, entity.get("filter_by_auto"), *extra_filters] if f]
-    filter_final = " && ".join(f"({f})" for f in filter_parts) if len(filter_parts) > 1 else (filter_parts[0] if filter_parts else None)
-
     hard_contributors = hard.get("contributors_norm") or []
     hard_locations = hard.get("locations_norm") or []
     has_author_entity = bool(hard_contributors)
     has_location_entity = bool(hard_locations)
+
+    # A series that has nothing by this author / about this place: their pieces, not an empty page
+    dropped: List[str] = []
+    if series and kind != "year" and (has_author_entity or has_location_entity):
+        named_ids = set(get_article_ids_with("contributors_norm", hard_contributors)) if has_author_entity else None
+        if has_location_entity:
+            loc_ids = set(get_article_ids_with("locations_all", hard_locations))
+            named_ids = loc_ids if named_ids is None else (named_ids & loc_ids) or named_ids
+        if named_ids is not None and not named_ids & (series_ids or set()):
+            dropped, extra_filters, series_ids = series, [], None
+
+    no_humour = HUMOUR_SERIES not in series and not has_author_entity and not entity.get("name_query")
+    if no_humour and exact_title not in HUMOUR_IDS:
+        extra_filters.append(f"series:!=[{HUMOUR_SERIES}]")
+
+    filter_parts = [f for f in [filter_by, entity.get("filter_by_auto"), *extra_filters] if f]
+    filter_final = " && ".join(f"({f})" for f in filter_parts) if len(filter_parts) > 1 else (filter_parts[0] if filter_parts else None)
 
     # Restrict Qdrant to the same articles the Typesense filter allows.
     qdrant_article_ids: Optional[List[str]] = None
@@ -673,6 +761,21 @@ def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[
             weights = {**weights, "match_contributor": max(weights.get("match_contributor", 0.0), NAME_QUERY_CONTRIBUTOR_WEIGHT)}
         ranked = ranker_v2(candidates, entity.get("matches", {}), now_ts=now_ts, weights=weights)
 
+    if no_humour:
+        # Also out of the vector results; when only humour matched, show that rather than nothing
+        ranked = [it for it in ranked if it["article_id"] not in HUMOUR_IDS or it["article_id"] == exact_title] or ranked
+    if exact_title:
+        for it in ranked:
+            if it["article_id"] == exact_title:
+                it["score"] = max(x["score"] for x in ranked) + 1.0
+        ranked.sort(key=lambda x: x["score"], reverse=True)
+    if recent and not browse:
+        # "नवीनतम ...": the best matches, newest first (a browse is newest-first already)
+        top = sorted(ranked[:RECENT_POOL], key=lambda x: int(articles_meta.get(x["article_id"], {}).get("published_ts") or 0), reverse=True)
+        ranked = top + ranked[RECENT_POOL:]
+    for r, it in enumerate(ranked, start=1):
+        it["rank"] = r
+
     timings["t_rank"] = time.perf_counter() - t
 
     return {
@@ -696,6 +799,9 @@ def retrieve(query: str, filter_by: Optional[str], ranker_version: str) -> Dict[
             "query_semantic_used": query_semantic,
             "query_kind": kind,
             "series": series,
+            "dropped_series": dropped,
+            "recent": recent,
+            "exact_title": exact_title,
             "name_query": bool(entity.get("name_query")),
             "query_gloss": canon.get("q_gloss"),
             **{k: round(v, 3) for k, v in timings.items()},

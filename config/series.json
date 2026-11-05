@@ -1,5 +1,5 @@
 {
-  "note": "Series and formats people browse by name. An article belongs to a series if its headline matches title_regex (Devanagari, after nukta/chandrabindu folding), it has one of the categories (compared by the part after the last '>', so 'विशेष>मेरा एक दिन' and 'मेरा एक दिन' match), or its multimedia_type matches. A query containing a trigger is filtered to that series; the trigger words are removed from the rest of the query. Triggers in Latin letters are compared as phonetic keys, so spelling variants match. Triggers and misspellings come from the search logs.",
+  "note": "Series and formats people browse by name. An article belongs to a series if its headline matches title_regex (Devanagari, after nukta/chandrabindu folding), it has one of the categories (compared by the part after the last '>', so 'विशेष>मेरा एक दिन' and 'मेरा एक दिन' match), or its multimedia_type matches. A query containing a trigger is filtered to that series; the trigger words are removed from the rest of the query. halka_fulka is also left out of every other search (hybrid_search_api.HUMOUR_SERIES), so its triggers are how people ask for it. Triggers in Latin letters are compared as phonetic keys, so spelling variants match. Triggers and misspellings come from the search logs.",
   "series": [
     {
       "name": "saral_kosh",
@@ -18,7 +18,7 @@
       "name": "halka_fulka",
       "label": "हल्का-फुल्का",
       "categories": ["हल्का-फुल्का"],
-      "triggers": ["हल्का-फुल्का", "हल्का फुल्का", "halka-fulka", "halka fulka", "halka pulka", "मीम", "कार्टून", "कारटून", "meme", "memes", "cartoon"]
+      "triggers": ["हल्का-फुल्का", "हल्का फुल्का", "halka-fulka", "halka fulka", "halka pulka", "मीम", "कार्टून", "कारटून", "meme", "memes", "cartoon", "हास्य", "व्यंग्य", "मज़ेदार", "मजेदार", "funny", "humour", "humor", "satire"]
     },
     {
       "name": "interviews",

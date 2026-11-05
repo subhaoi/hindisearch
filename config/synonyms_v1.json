@@ -523,6 +523,40 @@
       "nep 2020",
       "new education policy",
       "national education policy"
+    ],
+    [
+      "कोलकाता",
+      "कलकत्ता",
+      "kolkata",
+      "calcutta"
+    ],
+    [
+      "मुंबई",
+      "बम्बई",
+      "बंबई",
+      "mumbai",
+      "bombay"
+    ],
+    [
+      "चेन्नई",
+      "मद्रास",
+      "chennai",
+      "madras"
+    ],
+    [
+      "गुरुग्राम",
+      "गुड़गांव",
+      "गुड़गाँव",
+      "gurugram",
+      "gurgaon"
+    ],
+    [
+      "बेंगलुरु",
+      "बेंगलुरू",
+      "बैंगलोर",
+      "बंगलौर",
+      "bengaluru",
+      "bangalore"
     ]
   ]
 }
